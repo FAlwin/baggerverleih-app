@@ -1,2 +1,2 @@
-# baggerleid-app
+# baggerverleih-app
 Verwaltungssoftware für Bagger-Verleih
