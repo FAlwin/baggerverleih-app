@@ -95,13 +95,25 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
       const id = store.addAngebot({
         kundeId: kId, datum, gueltigBis, positionen: draft.positionen,
         von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt,
-        anfrageId: params.anfrageId,
+        anfrageId: params.anfrageId, auftragId: params.auftragId || null,
       });
       if (params.anfrageId) store.setAnfrageStatus(params.anfrageId, 'erledigt');
-      toast('Angebot ' + id + ' erstellt'); nav('angebote');
+      // Aus einem Auftrag heraus: Angebot verknüpfen + Auftrag auf 'angebot' setzen → zurück zum Auftrag
+      if (params.auftragId) {
+        store.updateAuftrag(params.auftragId, { angebotId: id, status: 'angebot' });
+        toast('Angebot ' + id + ' erstellt'); nav('auftrag', { id: params.auftragId });
+      } else {
+        toast('Angebot ' + id + ' erstellt'); nav('angebote');
+      }
     } else {
-      const id = store.addRechnung({ kundeId: kId, datum, faellig, positionen: draft.positionen, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null });
-      toast('Rechnung ' + id + ' erstellt'); nav('rechnung', { id });
+      const id = store.addRechnung({ kundeId: kId, datum, faellig, positionen: draft.positionen, auftragId: params.auftragId || null, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null });
+      // Aus einem Auftrag heraus: Rechnung verknüpfen + Auftrag auf 'abgerechnet' → zurück zum Auftrag
+      if (params.auftragId) {
+        store.updateAuftrag(params.auftragId, { rechnungId: id, status: 'abgerechnet' });
+        toast('Rechnung ' + id + ' erstellt'); nav('auftrag', { id: params.auftragId });
+      } else {
+        toast('Rechnung ' + id + ' erstellt'); nav('rechnung', { id });
+      }
     }
   };
 
@@ -127,8 +139,8 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', border: '1px solid var(--yellow)', fontSize: 13 }}>
               <Icon name="bell" size={17} color="var(--yellow-deep)" style={{ flex: '0 0 auto', marginTop: 1 }} />
               <div>
-                <div style={{ fontWeight: 700 }}>Aus Anfrage vorausgefüllt</div>
-                <div style={{ color: 'var(--muted)', marginTop: 2 }}>{matchedKunde ? `Bestehender Kunde: ${matchedKunde.name}` : 'Kein passender Kunde gefunden — Neuanlage vorausgefüllt.'}</div>
+                <div style={{ fontWeight: 700 }}>{params.auftragId ? `Aus Auftrag ${params.auftragId} vorausgefüllt` : 'Aus Anfrage vorausgefüllt'}</div>
+                <div style={{ color: 'var(--muted)', marginTop: 2 }}>{matchedKunde ? `Bestehender Kunde: ${matchedKunde.name}` : params.kundeId ? `Kunde übernommen` : 'Kein passender Kunde gefunden — Neuanlage vorausgefüllt.'}</div>
               </div>
             </div>
           )}

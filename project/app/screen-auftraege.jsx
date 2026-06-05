@@ -55,6 +55,7 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   const F = window.FRIESEN;
   const [filter, setFilter] = auS(params.filter || 'aktiv');
   const [q, setQ] = auS('');
+  const [neuOpen, setNeuOpen] = auS(false);
 
   const all = store.db.auftraege;
   const counts = {
@@ -62,13 +63,12 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
     aktiv: all.filter(istAktiv).length,
     anfrage: all.filter((a) => a.status === 'anfrage').length,
     reserviert: all.filter((a) => a.status === 'reserviert').length,
-    abgerechnet: all.filter((a) => a.status === 'einsatz' || a.status === 'abgerechnet').length,
+    abgerechnet: all.filter((a) => a.status === 'abgerechnet').length,
   };
 
   let rows = all.filter((a) => {
     if (filter === 'alle') return true;
     if (filter === 'aktiv') return istAktiv(a);
-    if (filter === 'abgerechnet') return a.status === 'einsatz' || a.status === 'abgerechnet';
     return a.status === filter;
   });
   if (q) {
@@ -80,15 +80,37 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   }
   rows = [...rows].sort((a, b) => b.von.localeCompare(a.von));
 
-  const kundeName = (a) => a.typ !== 'vermietung'
-    ? (F.AUFTRAG_TYP[a.typ]?.label || 'Belegung')
-    : (store.kundeById(a.kundeId)?.name || '—');
+  const kundeName = (a) => store.kundeById(a.kundeId)?.name || '—';
 
   return (
     <>
       <PageHeader kicker="Verwaltung" title="Aufträge" mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn icon="plus" onClick={() => nav('kalender')}>{mobile ? 'Neu' : 'Neuer Auftrag'}</window.UI.Btn>
+        <window.UI.Btn icon="plus" onClick={() => setNeuOpen(true)}>{mobile ? 'Neu' : 'Neuer Auftrag'}</window.UI.Btn>
       </PageHeader>
+
+      {/* Neuer-Auftrag-Auswahl */}
+      <window.UI.Modal open={neuOpen} onClose={() => setNeuOpen(false)} title="Neuer Auftrag" width={460}
+        footer={<window.UI.Btn variant="ghost" onClick={() => setNeuOpen(false)}>Abbrechen</window.UI.Btn>}>
+        <div className="stack" style={{ gap: 12 }}>
+          <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Wie möchtest du starten?</div>
+          <button onClick={() => { setNeuOpen(false); nav('kalender', { neu: 'auftrag' }); }} style={auswahlBtn}>
+            <Icon name="kalender" size={22} color="var(--ink)" style={{ flex: '0 0 auto' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>Direkt buchen</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Maschine fest für einen Kunden eintragen – ohne Angebot.</div>
+            </div>
+            <Icon name="chevron" size={16} color="var(--muted-2)" />
+          </button>
+          <button onClick={() => { setNeuOpen(false); nav('rechnung-neu', { mode: 'angebot' }); }} style={auswahlBtn}>
+            <Icon name="angebot" size={22} color="var(--ink)" style={{ flex: '0 0 auto' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>Mit Angebot starten</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Erst ein Angebot schreiben, das der Kunde annehmen kann.</div>
+            </div>
+            <Icon name="chevron" size={16} color="var(--muted-2)" />
+          </button>
+        </div>
+      </window.UI.Modal>
       <div className="content-pad stack" style={{ gap: 16 }}>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center' }}>
           <AuftragFilter value={filter} onChange={setFilter} counts={counts} />
@@ -159,22 +181,56 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   );
 };
 
-// Nächster-Schritt-Konfiguration je Auftrag-Status
+// Nächster-Schritt-Konfiguration je Auftrag-Status.
+// Gibt { primary:{label,icon,hint,action}, secondary?:{label,action,danger} } zurück.
 function nextStep(a, angebot, rechnung, store, nav, toast) {
   const id = a.id;
-  if (a.status === 'anfrage') return { label: 'Angebot erstellen', icon: 'angebot',
-    action: () => nav('rechnung-neu', { mode: 'angebot', auftragId: id }) };
-  if (a.status === 'angebot') return { label: 'Angebot versenden', icon: 'arrowRight',
-    action: () => a.angebotId ? nav('angebote', { versendId: a.angebotId }) : nav('rechnung-neu', { mode: 'angebot', auftragId: id }) };
-  if (a.status === 'reserviert') return { label: 'Einsatz bestätigen', icon: 'check',
-    action: () => { store.setAuftragStatus(id, 'einsatz'); toast('Einsatz gestartet'); } };
-  if (a.status === 'einsatz') return { label: 'Rechnung erstellen', icon: 'rechnung',
-    action: () => { if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); } else { nav('rechnung-neu', { auftragId: id }); } } };
-  if (a.status === 'abgerechnet' && rechnung) return { label: 'Als bezahlt markieren', icon: 'check',
-    action: () => { store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } };
-  if (a.status === 'bezahlt') return { label: 'Auftrag abschließen', icon: 'check',
-    action: () => { store.setAuftragStatus(id, 'abgeschlossen'); toast('Auftrag abgeschlossen'); } };
+  const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort };
+  // Rechnung schreiben: aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag
+  const rechnungSchreiben = () => {
+    if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); }
+    else nav('rechnung-neu', { auftragId: id, kundeId: a.kundeId, prefill });
+  };
+
+  if (a.status === 'anfrage') return {
+    primary: { label: 'Angebot schreiben', icon: 'angebot', hint: 'Erstellt ein Angebot zu diesem Auftrag.',
+      action: () => nav('rechnung-neu', { mode: 'angebot', auftragId: id, kundeId: a.kundeId, prefill }) },
+    secondary: { label: 'Stattdessen direkt buchen', action: () => { store.setAuftragStatus(id, 'reserviert'); toast('Auftrag gebucht'); } },
+  };
+
+  if (a.status === 'angebot') {
+    const st = angebot ? angebot.status : 'offen';
+    if (st === 'angenommen') return { primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Erstellt die Rechnung und setzt den Auftrag auf „abgerechnet".', action: rechnungSchreiben } };
+    if (st === 'versendet') return {
+      primary: { label: 'Kunde hat angenommen', icon: 'check', hint: 'Bucht den Auftrag fest (reserviert). Rechnung folgt später.',
+        action: () => { store.angebotAnnehmen(id); toast('Auftrag gebucht'); } },
+      secondary: { label: 'Angebot abgelehnt', danger: true, action: () => { if (confirm(`Angebot abgelehnt – Auftrag ${id} samt Angebot löschen?`)) { store.deleteAuftrag(id); toast('Auftrag gelöscht'); nav('auftraege'); } } },
+    };
+    // Angebot erstellt, aber noch nicht versendet
+    return {
+      primary: { label: 'Angebot versenden', icon: 'arrowRight', hint: 'Öffnet den Versand per E-Mail oder WhatsApp.',
+        action: () => a.angebotId ? nav('angebote', { versendId: a.angebotId }) : nav('rechnung-neu', { mode: 'angebot', auftragId: id, kundeId: a.kundeId, prefill }) },
+      secondary: { label: 'Kunde hat schon angenommen', action: () => { store.angebotAnnehmen(id); toast('Auftrag gebucht'); } },
+    };
+  }
+
+  if (a.status === 'reserviert') return {
+    primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Erstellt die Rechnung und setzt den Auftrag auf „abgerechnet".', action: rechnungSchreiben },
+  };
+  if (a.status === 'abgerechnet') return {
+    primary: { label: 'Als bezahlt markieren', icon: 'check', hint: 'Bucht die Zahlung ein – der Auftrag gilt dann als bezahlt.',
+      action: () => { if (rechnung) store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } },
+  };
+  if (a.status === 'bezahlt') return {
+    primary: { label: 'Auftrag abschließen', icon: 'check', hint: 'Schließt den Vorgang ab und legt ihn ins Archiv.',
+      action: () => { store.setAuftragStatus(id, 'abgeschlossen'); toast('Auftrag abgeschlossen'); } },
+  };
   return null;
+}
+
+// läuft die Vermietung gerade? (heute im Zeitraum, schon gebucht, noch nicht abgeschlossen)
+function laeuftGerade(a, today) {
+  return today >= a.von && today <= a.bis && ['reserviert', 'abgerechnet'].includes(a.status);
 }
 
 window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, PageHeader }) {
@@ -190,8 +246,8 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const k = a.kundeId ? store.kundeById(a.kundeId) : null;
   const angebot = a.angebotId ? store.angebotById(a.angebotId) : null;
   const rechnung = a.rechnungId ? store.rechnungById(a.rechnungId) : null;
-  const istVermietung = a.typ === 'vermietung';
   const ns = nextStep(a, angebot, rechnung, store, nav, toast);
+  const laeuft = laeuftGerade(a, store.today);
 
   const loeschen = () => {
     const teile = [];
@@ -211,35 +267,48 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
       <div className="content-pad stack" style={{ gap: 20 }}>
 
         {/* Statuszeile + Nächster Schritt */}
-        {istVermietung && (
-          <window.UI.Card style={{ padding: '18px 18px 16px' }}>
-            <window.UI.Stepper flow={F.AUFTRAG_FLOW} current={a.status} />
-            {ns && (
-              <window.UI.Btn icon={ns.icon} onClick={ns.action} style={{ width: '100%', marginTop: 16, padding: '12px 16px', fontSize: 15 }}>
-                {ns.label} →
+        <window.UI.Card style={{ padding: '18px 18px 16px' }}>
+          <window.UI.Stepper flow={F.AUFTRAG_FLOW} current={a.status} />
+          {laeuft && (
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12.5, color: 'var(--warn)', fontWeight: 700 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--warn)' }} /> Läuft gerade
+            </div>
+          )}
+          {ns && (
+            <div style={{ marginTop: 16 }}>
+              <window.UI.Btn icon={ns.primary.icon} onClick={ns.primary.action} style={{ width: '100%', padding: '12px 16px', fontSize: 15 }}>
+                {ns.primary.label} →
               </window.UI.Btn>
-            )}
-            {a.status === 'abgeschlossen' && (
-              <div style={{ marginTop: 14, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
-                <Icon name="check" size={16} color="var(--ok)" /> Auftrag abgeschlossen
-              </div>
-            )}
-            {a.status !== 'abgeschlossen' && (
-              <div style={{ marginTop: 8, textAlign: 'center' }}>
-                <button onClick={() => setStatusKorr((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: '4px 8px' }}>
-                  Status manuell korrigieren
-                </button>
-                {statusKorr && (
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    <window.UI.Select value={a.status} onChange={(e) => { store.setAuftragStatus(a.id, e.target.value); toast('Status aktualisiert'); setStatusKorr(false); }} style={{ maxWidth: 220 }}>
-                      {F.AUFTRAG_FLOW.map((s) => <option key={s} value={s}>{(F.STATUS[s] || { label: s }).label}</option>)}
-                    </window.UI.Select>
-                  </div>
-                )}
-              </div>
-            )}
-          </window.UI.Card>
-        )}
+              {ns.primary.hint && <div style={{ marginTop: 7, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>{ns.primary.hint}</div>}
+              {ns.secondary && (
+                <div style={{ marginTop: 10, textAlign: 'center' }}>
+                  <button onClick={ns.secondary.action} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: ns.secondary.danger ? 'var(--danger)' : 'var(--ink)', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: '4px 8px' }}>
+                    {ns.secondary.label}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {a.status === 'abgeschlossen' && (
+            <div style={{ marginTop: 14, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
+              <Icon name="check" size={16} color="var(--ok)" /> Auftrag abgeschlossen
+            </div>
+          )}
+          {a.status !== 'abgeschlossen' && (
+            <div style={{ marginTop: 10, textAlign: 'center' }}>
+              <button onClick={() => setStatusKorr((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: '4px 8px' }}>
+                Status manuell korrigieren
+              </button>
+              {statusKorr && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <window.UI.Select value={a.status} onChange={(e) => { store.setAuftragStatus(a.id, e.target.value); toast('Status aktualisiert'); setStatusKorr(false); }} style={{ maxWidth: 220 }}>
+                    {F.AUFTRAG_FLOW.map((s) => <option key={s} value={s}>{(F.STATUS[s] || { label: s }).label}</option>)}
+                  </window.UI.Select>
+                </div>
+              )}
+            </div>
+          )}
+        </window.UI.Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 16, alignItems: 'start' }}>
           {/* Eckdaten */}
@@ -286,3 +355,4 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
 
 const belegBtn = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '11px 13px', border: '1px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 const belegLeer = { display: 'flex', alignItems: 'center', gap: 9, padding: '11px 13px', borderRadius: 'var(--r)', background: 'var(--paper-3)', fontSize: 13.5, color: 'var(--muted-2)' };
+const auswahlBtn = { display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '15px 16px', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'var(--ink)' };

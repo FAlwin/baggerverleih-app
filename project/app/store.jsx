@@ -1,7 +1,7 @@
 /* ============================================================
    STORE — localStorage-Persistenz + Mutationen (window.useStore)
    ============================================================ */
-const DB_KEY = 'friesen_db_v3';
+const DB_KEY = 'friesen_db_v4';
 const { createContext, useContext, useState, useEffect, useCallback, useMemo } = React;
 
 function seedDB() {
@@ -16,6 +16,7 @@ function seedDB() {
     rechnungen: clone(F.RECHNUNGEN),
     angebote: clone(F.ANGEBOTE),
     auftraege: clone(F.AUFTRAEGE),
+    belegungen: clone(F.BELEGUNGEN),
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
   };
@@ -50,12 +51,11 @@ function StoreProvider({ children }) {
 
   const sumPos = (pos) => (pos || []).reduce((a, p) => a + (p.menge || 0) * (p.preis || 0), 0);
 
-  // Doppelbuchung prüfen: gibt kollidierenden Auftrag (Belegung) zurück oder null
+  // Doppelbuchung prüfen: gibt kollidierende Belegung (Auftrag ODER Block) zurück oder null
   const findConflict = useCallback((geraetId, von, bis, exceptId) => {
-    return db.auftraege.find((t) =>
-      t.geraetId === geraetId && t.id !== exceptId && von <= t.bis && bis >= t.von
-    ) || null;
-  }, [db.auftraege]);
+    const hit = (t) => t.geraetId === geraetId && t.id !== exceptId && von <= t.bis && bis >= t.von;
+    return db.auftraege.find(hit) || (db.belegungen || []).find(hit) || null;
+  }, [db.auftraege, db.belegungen]);
 
   // ---- Mutationen ----
   const actions = useMemo(() => ({
@@ -115,18 +115,16 @@ function StoreProvider({ children }) {
     },
     updateKunde: (id, data) => setDb((d) => ({ ...d, kunden: d.kunden.map((k) => k.id === id ? { ...k, ...data } : k) })),
 
-    // ---- Aufträge (zentrale Klammer; Belegung im Kalender) ----
+    // ---- Aufträge (Vermietung mit Lebenszyklus) ----
+    // Direktbuchung: ohne Status → 'reserviert' (fest gebucht). Mit Angebot-Weg → 'anfrage'/'angebot'.
     addAuftrag: (data) => {
       let newId;
       setDb((d) => {
         newId = nextId('AU', d.auftraege);
-        // Typ aus altem quellTyp ableiten, falls nicht gesetzt
-        const typ = data.typ || (data.quellTyp === 'privat' ? 'eigennutzung' : data.quellTyp === 'wartung' ? 'wartung' : 'vermietung');
         const a = {
-          anfrageId: null, angebotId: null, rechnungId: null, notiz: '', ort: '',
-          status: typ === 'vermietung' ? 'reserviert' : 'reserviert',
-          ...data, id: newId, typ,
-          kundeId: typ === 'vermietung' ? data.kundeId : null,
+          typ: 'vermietung', anfrageId: null, angebotId: null, rechnungId: null,
+          notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'reserviert',
+          ...data, id: newId,
         };
         return { ...d, auftraege: [...d.auftraege, a] };
       });
@@ -134,6 +132,16 @@ function StoreProvider({ children }) {
     },
     updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Kunde hat ein versendetes Angebot angenommen → Auftrag fest buchen, Angebot abhaken
+    angebotAnnehmen: (auftragId) => setDb((d) => {
+      const au = d.auftraege.find((x) => x.id === auftragId);
+      if (!au) return d;
+      return {
+        ...d,
+        auftraege: d.auftraege.map((x) => x.id === auftragId ? { ...x, status: 'reserviert' } : x),
+        angebote: au.angebotId ? d.angebote.map((x) => x.id === au.angebotId ? { ...x, status: 'angenommen' } : x) : d.angebote,
+      };
+    }),
     // Auftrag löschen → verknüpftes Angebot und verknüpfte Rechnung mit entfernen (Kaskade)
     deleteAuftrag: (id) => setDb((d) => {
       const a = d.auftraege.find((x) => x.id === id);
@@ -146,14 +154,25 @@ function StoreProvider({ children }) {
       };
     }),
 
-    // Rückwärtskompatibel: der Kalender/Dashboard nutzen noch addTermin/deleteTermin
+    // ---- Belegungen (Maschine ohne Auftrag blocken: Privat/Familie/Wartung) ----
+    addBelegung: (data) => {
+      let newId;
+      setDb((d) => {
+        newId = nextId('BL', d.belegungen || []);
+        const b = { grund: 'privat', notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', ...data, id: newId };
+        return { ...d, belegungen: [...(d.belegungen || []), b] };
+      });
+      return newId;
+    },
+    updateBelegung: (id, patch) => setDb((d) => ({ ...d, belegungen: (d.belegungen || []).map((b) => b.id === id ? { ...b, ...patch } : b) })),
+    deleteBelegung: (id) => setDb((d) => ({ ...d, belegungen: (d.belegungen || []).filter((b) => b.id !== id) })),
+
+    // Legacy-Wrapper: Angebot-Versand legt für Standalone-Angebote eine reservierende Vermietung an
     addTermin: (data) => setDb((d) => {
       const newId = nextId('AU', d.auftraege);
-      const typ = data.typ || (data.quellTyp === 'privat' ? 'eigennutzung' : data.quellTyp === 'wartung' ? 'wartung' : 'vermietung');
-      // Reservierung aus Angebot: Auftrag mit dem Angebot verknüpfen
       const angebotId = data.angebotId || (data.quellTyp === 'reservierung' ? data.quellId : null) || null;
       const status = data.status || (angebotId ? 'angebot' : 'reserviert');
-      const a = { anfrageId: null, rechnungId: null, notiz: '', ...data, id: newId, typ, angebotId, status };
+      const a = { typ: 'vermietung', anfrageId: null, rechnungId: null, notiz: '', ...data, id: newId, angebotId, status };
       const angebote = angebotId ? d.angebote.map((x) => x.id === angebotId ? { ...x, auftragId: newId } : x) : d.angebote;
       return { ...d, auftraege: [...d.auftraege, a], angebote };
     }),
@@ -239,6 +258,7 @@ function StoreProvider({ children }) {
     kundeById: (id) => db.kunden.find((k) => k.id === id),
     geraetById: (id) => db.flotte.find((g) => g.id === id),
     auftragById: (id) => db.auftraege.find((a) => a.id === id),
+    belegungById: (id) => (db.belegungen || []).find((b) => b.id === id),
     rechnungById: (id) => db.rechnungen.find((r) => r.id === id),
     angebotById: (id) => db.angebote.find((a) => a.id === id),
     anfragen: db.anfragen || [],

@@ -97,20 +97,26 @@
   ];
 
   // Aufträge — zentrale Klammer über Belegung (Kalender), Angebot und Rechnung.
-  // typ: vermietung | eigennutzung | wartung   (eigennutzung/wartung haben keinen Kunden)
-  // status: anfrage → angebot → reserviert → einsatz → abgerechnet → bezahlt → abgeschlossen
-  // quellTyp bleibt für den (noch unveränderten) Kalender erhalten und wird in Phase 2 abgelöst.
+  // Aufträge sind IMMER Vermietungen an einen Kunden (typ bleibt für Abwärtskompatibilität).
+  // status: anfrage → angebot → reserviert → abgerechnet → bezahlt → abgeschlossen
+  // Privat-/Wartungs-Blocks stehen separat in BELEGUNGEN (kein Auftrag).
   const AUFTRAEGE = [
-    { id: 'AU-2026-001', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k1', von: '2026-06-01', bis: '2026-06-01', vonZeit: '07:00', bisZeit: '17:00', ort: 'Baustelle Siegburg', status: 'abgeschlossen', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-006', notiz: '' },
-    { id: 'AU-2026-002', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '07:00', bisZeit: '13:00', ort: 'Lohmar', status: 'einsatz', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-009', notiz: '' },
-    { id: 'AU-2026-003', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '14:00', bisZeit: '17:00', ort: 'Lohmar', status: 'einsatz', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-004', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k2', von: '2026-06-03', bis: '2026-06-03', vonZeit: '08:00', bisZeit: '12:00', ort: 'Lohmar', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-008', notiz: '' },
-    { id: 'AU-2026-005', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-04', bis: '2026-06-05', vonZeit: '07:00', bisZeit: '17:00', ort: 'Troisdorf', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-006', typ: 'eigennutzung', geraetId: 'bagger',  kundeId: null, von: '2026-06-03', bis: '2026-06-03', vonZeit: '14:00', bisZeit: '18:00', ort: 'Eigener Garten Lohmar', status: 'reserviert', quellTyp: 'privat', anfrageId: null, angebotId: null, rechnungId: null, notiz: 'Eigene Nutzung – nicht vermietbar' },
-    { id: 'AU-2026-007', typ: 'wartung', geraetId: 'ruettler',     kundeId: null, von: '2026-06-04', bis: '2026-06-04', vonZeit: '08:00', bisZeit: '12:00', ort: 'Werkstatt', status: 'reserviert', quellTyp: 'wartung', anfrageId: null, angebotId: null, rechnungId: null, notiz: 'Inspektion / Funktionsprüfung' },
-    { id: 'AU-2026-008', typ: 'vermietung', geraetId: 'ruettler',  kundeId: 'k6', von: '2026-06-05', bis: '2026-06-05', vonZeit: '13:00', bisZeit: '17:00', ort: 'Eitorf', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-009', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k7', von: '2026-06-06', bis: '2026-06-06', vonZeit: '07:00', bisZeit: '14:00', ort: 'Köln-Sülz', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-010', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-10', bis: '2026-06-11', vonZeit: '07:00', bisZeit: '17:00', ort: 'Neunkirchen-Seelscheid', status: 'angebot', quellTyp: 'reservierung', quellId: 'A-2026-018', anfrageId: 'anf1', angebotId: 'A-2026-018', rechnungId: null, notiz: '' },
+    { id: 'AU-2026-001', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k1', von: '2026-06-01', bis: '2026-06-01', vonZeit: '07:00', bisZeit: '17:00', ort: 'Baustelle Siegburg', status: 'abgeschlossen', anfrageId: null, angebotId: null, rechnungId: 'R-2026-006', notiz: '' },
+    { id: 'AU-2026-002', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '07:00', bisZeit: '13:00', ort: 'Lohmar', status: 'abgerechnet', anfrageId: null, angebotId: null, rechnungId: 'R-2026-009', notiz: '' },
+    { id: 'AU-2026-003', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '14:00', bisZeit: '17:00', ort: 'Lohmar', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-004', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k2', von: '2026-06-03', bis: '2026-06-03', vonZeit: '08:00', bisZeit: '12:00', ort: 'Lohmar', status: 'abgerechnet', anfrageId: null, angebotId: null, rechnungId: 'R-2026-008', notiz: '' },
+    { id: 'AU-2026-005', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-04', bis: '2026-06-05', vonZeit: '07:00', bisZeit: '17:00', ort: 'Troisdorf', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-008', typ: 'vermietung', geraetId: 'ruettler',  kundeId: 'k6', von: '2026-06-05', bis: '2026-06-05', vonZeit: '13:00', bisZeit: '17:00', ort: 'Eitorf', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-009', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k7', von: '2026-06-06', bis: '2026-06-06', vonZeit: '07:00', bisZeit: '14:00', ort: 'Köln-Sülz', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-010', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-10', bis: '2026-06-11', vonZeit: '07:00', bisZeit: '17:00', ort: 'Neunkirchen-Seelscheid', status: 'angebot', anfrageId: 'anf1', angebotId: 'A-2026-018', rechnungId: null, notiz: '' },
+  ];
+
+  // Belegungen — Maschine geblockt OHNE Auftrag: Privat/Familie/Freunde oder Wartung.
+  // Erscheinen nur im Kalender, nicht in der Auftragsliste. Kein Status, kein Kunde, keine Rechnung.
+  // grund: privat | wartung
+  const BELEGUNGEN = [
+    { id: 'BL-2026-001', grund: 'privat',  geraetId: 'bagger',   von: '2026-06-03', bis: '2026-06-03', vonZeit: '14:00', bisZeit: '18:00', ort: 'Eigener Garten Lohmar', notiz: 'Eigene Nutzung – nicht vermietbar' },
+    { id: 'BL-2026-002', grund: 'wartung', geraetId: 'ruettler', von: '2026-06-04', bis: '2026-06-04', vonZeit: '08:00', bisZeit: '12:00', ort: 'Werkstatt', notiz: 'Inspektion / Funktionsprüfung' },
   ];
 
   // Eingehende Kundenanfragen (Kontaktformular)
@@ -164,11 +170,17 @@
   };
 
   // Lebenszyklus eines Vermietungs-Auftrags (für die Statuszeile/Stepper)
-  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'einsatz', 'abgerechnet', 'bezahlt', 'abgeschlossen'];
+  // 'einsatz' ist kein manueller Schritt mehr – „läuft gerade" wird aus dem Datum abgeleitet.
+  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'abgerechnet', 'bezahlt', 'abgeschlossen'];
   const AUFTRAG_TYP = {
     vermietung:   { label: 'Vermietung',   farbe: '#2B6CB0' },
     eigennutzung: { label: 'Eigennutzung', farbe: '#6B6B66' },
     wartung:      { label: 'Wartung',      farbe: '#C05621' },
+  };
+  // Belegungs-Gründe (Maschine ohne Auftrag geblockt)
+  const BELEGUNG_GRUND = {
+    privat:  { label: 'Privat / Verleih', farbe: '#6B6B66' },
+    wartung: { label: 'Wartung',          farbe: '#C05621' },
   };
 
   const APP_TODAY = '2026-06-02';          // „Heute" in der Demo
@@ -197,8 +209,8 @@
   }
 
   window.FRIESEN = {
-    COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, AUFTRAEGE, BUCHUNGEN, ANFRAGEN, STATUS,
-    AUFTRAG_FLOW, AUFTRAG_TYP,
+    COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, AUFTRAEGE, BELEGUNGEN, BUCHUNGEN, ANFRAGEN, STATUS,
+    AUFTRAG_FLOW, AUFTRAG_TYP, BELEGUNG_GRUND,
     fmtEUR, fmtDate, kundeById, geraetById, computeMetrics, APP_TODAY, WEEK,
     // Kennzahlen für die statischen Canvas-Mockups (Dashboard-Varianten)
     metrics: computeMetrics({ rechnungen: RECHNUNGEN, angebote: ANGEBOTE, auftraege: AUFTRAEGE }),

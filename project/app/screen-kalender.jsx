@@ -34,7 +34,7 @@ function yToTime(y) {
   return String(Math.min(h, HOUR_END - 1)).padStart(2, '0') + ':' + String(Math.min(m, 59)).padStart(2, '0');
 }
 
-window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader }) {
+window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
@@ -68,45 +68,73 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
   const weekDays = cvM(() => Array.from({ length: 7 }, (_, i) => window.addDays(weekStart, i)), [weekStart]);
   const timeLabels = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
 
-  const termine = store.db.termine;
-  const termineForDay = (gid, day) => termine.filter((t) => t.geraetId === gid && day >= t.von && day <= t.bis);
-  const termineForMonth = (day) => day ? termine.filter((t) => day >= t.von && day <= t.bis) : [];
+  // Einheitliche Belegungsliste: Aufträge (Vermietung) + Belegungen (Privat/Wartung)
+  const items = cvM(() => [
+    ...store.db.auftraege.map((a) => ({ ...a, kind: 'auftrag' })),
+    ...(store.db.belegungen || []).map((b) => ({ ...b, kind: 'belegung' })),
+  ], [store.db.auftraege, store.db.belegungen]);
 
-  const PRIVAT_ID = '__privat__';
-  const [kundeMode, setKundeMode] = cvS('liste'); // 'liste' | 'neu' | 'privat'
+  const itemsForDay = (gid, day) => items.filter((t) => t.geraetId === gid && day >= t.von && day <= t.bis);
+  const itemsForMonth = (day) => day ? items.filter((t) => day >= t.von && day <= t.bis) : [];
+
+  // Anzeige-Eigenschaften (Name, Farbe, gestrichelt) für ein Kalender-Item
+  const disp = (t) => {
+    const g = store.geraetById(t.geraetId);
+    if (t.kind === 'belegung') {
+      const gr = F.BELEGUNG_GRUND[t.grund] || { label: t.grund, farbe: '#6B6B66' };
+      const isW = t.grund === 'wartung';
+      return { g, name: gr.label, bg: isW ? 'var(--warn-wash)' : 'var(--paper-3)', col: isW ? 'var(--warn)' : 'var(--muted)', dashed: false, kindLabel: gr.label };
+    }
+    const k = store.kundeById(t.kundeId);
+    const reserv = t.status === 'anfrage' || t.status === 'angebot'; // noch nicht fest gebucht
+    return {
+      g, name: k?.name || 'Vermietung',
+      bg: reserv ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)'),
+      col: reserv ? 'var(--warn)' : (['#F7C72A', '#B5D334', '#F39222'].includes(g?.farbe) ? '#141414' : '#fff'),
+      dashed: reserv, kindLabel: 'Vermietung',
+    };
+  };
+
+  const [art, setArt] = cvS('vermietung');       // 'vermietung' | 'belegung'
+  const [kundeMode, setKundeMode] = cvS('liste'); // 'liste' | 'neu'
   const [neuerKunde, setNeuerKunde] = cvS({ name: '', phone: '', email: '' });
 
-  const openAdd = (geraetId, date, time) => {
+  const openAdd = (geraetId, date, time, art0) => {
     setConflict(null);
+    setArt(art0 || 'vermietung');
     setKundeMode('liste');
     setNeuerKunde({ name: '', phone: '', email: '' });
-    setModal({ geraetId, von: date, bis: date, kundeId: store.db.kunden[0]?.id || '', ort: '', vonZeit: time || '08:00', bisZeit: time ? yToTime(timeToY(time) + PX_PER_HOUR) : '17:00', quellTyp: 'buchung' });
+    setModal({ geraetId: geraetId || machines[0]?.id, von: date, bis: date, kundeId: store.db.kunden[0]?.id || '', ort: '', vonZeit: time || '08:00', bisZeit: time ? yToTime(timeToY(time) + PX_PER_HOUR) : '17:00', grund: 'privat', notiz: '' });
   };
+
+  // Aus „Aufträge → Neuer Auftrag → Direkt buchen" kommend: Buchungs-Dialog automatisch öffnen
+  React.useEffect(() => {
+    if (params && params.neu === 'auftrag') openAdd(machines[0]?.id, store.today, null, 'vermietung');
+    // eslint-disable-next-line
+  }, []);
 
   const save = () => {
     if (modal.bis < modal.von) { setConflict({ msg: 'Enddatum liegt vor dem Startdatum.' }); return; }
-    let kundeId = modal.kundeId;
-    if (kundeMode === 'privat') {
-      kundeId = PRIVAT_ID;
-    } else if (kundeMode === 'neu') {
-      if (!neuerKunde.name.trim()) { setConflict({ msg: 'Bitte einen Namen für den neuen Kunden angeben.' }); return; }
-      const c2 = store.findConflict(modal.geraetId, modal.von, modal.bis);
-      if (c2) { const k2 = store.kundeById(c2.kundeId); setConflict({ msg: `Doppelbuchung: ${store.geraetById(modal.geraetId).name} ist ${F.fmtDate(c2.von)}–${F.fmtDate(c2.bis)} bereits bei ${k2?.name || 'Privat'}.` }); return; }
-      // addKunde returns the new ID synchronously via closure
-      const newKundeId = store.addKunde({ name: neuerKunde.name.trim(), phone: neuerKunde.phone, email: neuerKunde.email, typ: 'Privat', street: '', city: '' });
-      store.addTermin({ ...modal, kundeId: newKundeId || ('k_' + Date.now()) });
-      toast('Neuer Kunde angelegt & Termin gespeichert: ' + neuerKunde.name.trim());
-      setModal(null);
-      return;
-    }
     const c = store.findConflict(modal.geraetId, modal.von, modal.bis);
     if (c) {
-      const k = store.kundeById(c.kundeId);
-      setConflict({ msg: `Doppelbuchung: ${store.geraetById(modal.geraetId).name} ist ${F.fmtDate(c.von)}–${F.fmtDate(c.bis)} bereits bei ${k?.name || 'Privat'}.` });
+      const belegt = c.kind === undefined && c.grund ? (F.BELEGUNG_GRUND[c.grund]?.label || 'Belegung') : (store.kundeById(c.kundeId)?.name || 'Belegung');
+      setConflict({ msg: `Doppelbuchung: ${store.geraetById(modal.geraetId)?.name} ist ${F.fmtDate(c.von)}–${F.fmtDate(c.bis)} bereits belegt (${belegt}).` });
       return;
     }
-    store.addTermin({ ...modal, kundeId, quellTyp: kundeMode === 'privat' ? 'privat' : modal.quellTyp });
-    toast('Termin gespeichert'); setModal(null);
+    if (art === 'belegung') {
+      store.addBelegung({ grund: modal.grund, geraetId: modal.geraetId, von: modal.von, bis: modal.bis, vonZeit: modal.vonZeit, bisZeit: modal.bisZeit, ort: modal.ort, notiz: modal.notiz });
+      toast('Belegung gespeichert'); setModal(null); return;
+    }
+    // Vermietung → Auftrag (direkt gebucht)
+    let kundeId = modal.kundeId;
+    if (kundeMode === 'neu') {
+      if (!neuerKunde.name.trim()) { setConflict({ msg: 'Bitte einen Namen für den neuen Kunden angeben.' }); return; }
+      kundeId = store.addKunde({ name: neuerKunde.name.trim(), phone: neuerKunde.phone, email: neuerKunde.email, typ: 'Privat', street: '', city: '' });
+    } else if (!kundeId) {
+      setConflict({ msg: 'Bitte einen Kunden auswählen.' }); return;
+    }
+    store.addAuftrag({ geraetId: modal.geraetId, kundeId, von: modal.von, bis: modal.bis, vonZeit: modal.vonZeit, bisZeit: modal.bisZeit, ort: modal.ort, status: 'reserviert' });
+    toast(kundeMode === 'neu' ? 'Kunde angelegt & Auftrag gebucht' : 'Auftrag gebucht'); setModal(null);
   };
 
   // ---- MONTH VIEW ----
@@ -124,7 +152,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
           {calDays.map((day, i) => {
-            const ts = termineForMonth(day);
+            const ts = itemsForMonth(day);
             const isToday = day === store.today;
             const inMonth = day && day.startsWith(ym);
             return (
@@ -132,17 +160,12 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
                 {day && <><div style={{ fontSize: 13, fontWeight: isToday ? 700 : 400, color: isToday ? 'var(--yellow-deep)' : 'var(--ink)' }}>{parseInt(day.slice(8))}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
                     {ts.slice(0, 3).map((t) => {
-                      const g = store.geraetById(t.geraetId);
-                      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
-                      if (!g) return null;
-                      const isRes = t.quellTyp === 'reservierung';
-                      const isPrivat = t.quellTyp === 'privat';
-                      const bg = isPrivat ? 'var(--paper-3)' : isRes ? 'var(--yellow-soft)' : (g.farbe || 'var(--ink)');
-                      const col = isPrivat ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g.farbe) ? '#141414' : '#fff');
+                      const d = disp(t);
+                      if (!d.g) return null;
                       return (
-                        <span key={t.id} style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 5px', borderRadius: 2, background: bg, color: col, border: isRes ? '1px dashed var(--warn)' : isPrivat ? '1px solid var(--line-2)' : 'none', display: 'flex', alignItems: 'center', gap: 3, maxWidth: '100%', overflow: 'hidden' }}>
-                          <span style={{ flexShrink: 0 }}>{g.kuerzel}</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, opacity: 0.85, fontSize: 8.5 }}>{k?.name?.split(' ')[0]}</span>
+                        <span key={t.id} onClick={(e) => { e.stopPropagation(); setDetail(t); }} title="Details öffnen" style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 5px', borderRadius: 2, background: d.bg, color: d.col, border: d.dashed ? '1px dashed var(--warn)' : t.kind === 'belegung' ? '1px solid var(--line-2)' : 'none', display: 'flex', alignItems: 'center', gap: 3, maxWidth: '100%', overflow: 'hidden', cursor: 'pointer' }}>
+                          <span style={{ flexShrink: 0 }}>{d.g.kuerzel}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, opacity: 0.85, fontSize: 8.5 }}>{d.name?.split(' ')[0]}</span>
                         </span>
                       );
                     })}
@@ -161,32 +184,29 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
   const WeekView = () => {
     const H_START = 7, H_END = 19, PX_H = 52; // px pro Stunde
 
-    const termineAnTag = (day) => termine.filter((t) => day >= t.von && day <= t.bis);
+    const termineAnTag = (day) => items.filter((t) => day >= t.von && day <= t.bis);
 
     // Buchungsblöcke mit absoluter Position innerhalb einer Tagesspalte
-    const BookingBlock = ({ t, dayW }) => {
-      const g = store.geraetById(t.geraetId);
-      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
-      const isRes = t.quellTyp === 'reservierung';
-      const isPrivat = t.quellTyp === 'privat';
+    const BookingBlock = ({ t }) => {
+      const d = disp(t);
+      const isBel = t.kind === 'belegung';
       const vz = t.vonZeit || '07:00', bz = t.bisZeit || '19:00';
       const [vh, vm] = vz.split(':').map(Number);
       const [bh, bm] = bz.split(':').map(Number);
       const top = (vh - H_START + vm / 60) * PX_H;
       const height = Math.max(22, ((bh - vh) + (bm - vm) / 60) * PX_H - 2);
-      const bg = isPrivat ? 'var(--paper-3)' : isRes ? 'rgba(217,119,43,.12)' : (g?.farbe || 'var(--ink)');
-      const textCol = isPrivat ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
+      const bg = d.dashed ? 'rgba(217,119,43,.12)' : d.bg;
       return (
         <button onClick={(e) => { e.stopPropagation(); setDetail(t); }}
           style={{ position: 'absolute', left: 2, right: 2, top, height,
-            background: bg, border: isRes ? '1.5px dashed var(--warn)' : '1.5px solid rgba(0,0,0,.12)',
-            borderLeft: `3px solid ${isPrivat ? 'var(--muted-2)' : isRes ? 'var(--warn)' : 'rgba(0,0,0,.3)'}`,
-            borderRadius: 3, padding: '2px 5px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: textCol, overflow: 'hidden', zIndex: 2 }}>
-          {g && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <window.GeraetBadge geraet={g} size={14} />
-            <span style={{ fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>{g.kuerzel}</span>
+            background: bg, border: d.dashed ? '1.5px dashed var(--warn)' : '1.5px solid rgba(0,0,0,.12)',
+            borderLeft: `3px solid ${isBel ? 'var(--muted-2)' : d.dashed ? 'var(--warn)' : 'rgba(0,0,0,.3)'}`,
+            borderRadius: 3, padding: '2px 5px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: d.col, overflow: 'hidden', zIndex: 2 }}>
+          {d.g && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <window.GeraetBadge geraet={d.g} size={14} />
+            <span style={{ fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>{d.g.kuerzel}</span>
           </div>}
-          <div style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name || '?'}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
           {height > 40 && <div style={{ fontSize: 9.5, opacity: 0.8 }}>{vz}–{bz}</div>}
         </button>
       );
@@ -249,9 +269,9 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
         </window.UI.Card>
         <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 10, background: 'var(--yellow)', borderLeft: '3px solid rgba(0,0,0,.3)', borderRadius: 2 }} /> Buchung</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 10, border: '1.5px dashed var(--warn)', borderRadius: 2, borderLeft: '3px solid var(--warn)' }} /> Reservierung</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 10, background: 'var(--paper-3)', borderLeft: '3px solid var(--muted-2)', borderRadius: 2 }} /> Privat</span>
-          <span>Zeitslot anklicken → Termin anlegen (Gerät danach im Dialog auswählen)</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 10, border: '1.5px dashed var(--warn)', borderRadius: 2, borderLeft: '3px solid var(--warn)' }} /> Reservierung (Angebot)</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 10, background: 'var(--paper-3)', borderLeft: '3px solid var(--muted-2)', borderRadius: 2 }} /> Privat / Wartung</span>
+          <span>Zeitslot anklicken → buchen (Gerät danach im Dialog wählen)</span>
         </div>
       </div>
     );
@@ -270,7 +290,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
         </div>
         <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
           {days.map((day) => {
-            const ts = termineForMonth(day);
+            const ts = itemsForMonth(day);
             const isToday = day === store.today;
             const [, dm, dd] = day.split('-').map(Number);
             const wd = WD[(new Date(day.split('-')[0], dm-1, dd).getDay() + 6) % 7];
@@ -284,16 +304,12 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
                   {ts.length === 0
                     ? <span style={{ fontSize: 12, color: 'var(--muted-2)', fontStyle: 'italic' }}>frei</span>
                     : ts.map((t) => {
-                        const g = store.geraetById(t.geraetId);
-                        const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
-                        const isRes = t.quellTyp === 'reservierung';
-                        const bg = t.quellTyp === 'privat' ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
-                        const col = t.quellTyp === 'privat' ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
+                        const d = disp(t);
                         return (
-                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', background: bg, border: isRes ? '1.5px dashed var(--warn)' : 'none', borderRadius: 4, cursor: 'pointer', font: 'inherit', color: col, textAlign: 'left' }}>
-                            {g && <window.GeraetBadge geraet={g} size={20} />}
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', background: d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.dashed ? '1.5px dashed var(--warn)' : 'none', borderRadius: 4, cursor: 'pointer', font: 'inherit', color: d.col, textAlign: 'left' }}>
+                            {d.g && <window.GeraetBadge geraet={d.g} size={20} />}
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name}</div>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
                               {t.vonZeit && <div style={{ fontSize: 10.5, opacity: 0.85 }}>{t.vonZeit}–{t.bisZeit}{t.ort ? ' · ' + t.ort : ''}</div>}
                             </div>
                           </button>
@@ -346,18 +362,15 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
                   </div>
                 </td>
                 {weekDays.map((day) => {
-                  const ts = termineForDay(g.id, day);
+                  const ts = itemsForDay(g.id, day);
                   const isToday = day === store.today;
                   return (
                     <td key={day} style={{ padding: 3, borderBottom: '1px solid var(--paper-3)', borderLeft: '1px solid var(--paper-3)', background: isToday ? 'rgba(247,199,42,.05)' : 'transparent', verticalAlign: 'top' }}>
                       {ts.map((t) => {
-                        const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : '—' });
-                        const isRes = t.quellTyp === 'reservierung';
-                        const bg = t.quellTyp === 'privat' ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : g.farbe;
-                        const col = t.quellTyp === 'privat' ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g.farbe) ? '#141414' : '#fff');
+                        const d = disp(t);
                         return (
-                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'block', width: '100%', padding: '3px 5px', background: bg, border: isRes ? '1px dashed var(--warn)' : 'none', borderRadius: 3, color: col, cursor: 'pointer', font: 'inherit', textAlign: 'left', marginBottom: 2 }}>
-                            <div style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name?.split(' ').slice(-1)[0]}</div>
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'block', width: '100%', padding: '3px 5px', background: d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.dashed ? '1px dashed var(--warn)' : 'none', borderRadius: 3, color: d.col, cursor: 'pointer', font: 'inherit', textAlign: 'left', marginBottom: 2 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name?.split(' ').slice(-1)[0]}</div>
                             {t.vonZeit && <div style={{ fontSize: 9.5, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</div>}
                           </button>
                         );
@@ -387,7 +400,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
             <window.UI.Btn variant={view === 'week' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('week')}>Woche</window.UI.Btn>
           </div>
         )}
-        <window.UI.Btn icon="plus" onClick={() => openAdd(machines[0]?.id, store.today)}>{mobile ? 'Neu' : 'Neuer Termin'}</window.UI.Btn>
+        <window.UI.Btn icon="plus" onClick={() => openAdd(machines[0]?.id, store.today)}>Neu</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad">
@@ -400,30 +413,55 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
         )}
         {view === 'month' ? <MonthView /> : view === 'week' ? <WeekView /> : view === 'agenda' ? <AgendaView /> : <GeraeteView />}
         <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--yellow)', borderLeft: '3px solid var(--ink)', borderRadius: 2 }} /> Buchung</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--yellow)', borderLeft: '3px solid var(--ink)', borderRadius: 2 }} /> Vermietung (gebucht)</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, border: '2px dashed var(--warn)', borderRadius: 2, borderLeft: '3px solid var(--warn)' }} /> Reservierung (offenes Angebot)</span>
-          <span>Monat: Tag anklicken → Wochenansicht · Woche: Zeitslot anklicken → Termin anlegen</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--paper-3)', borderLeft: '3px solid var(--muted-2)', borderRadius: 2 }} /> Privat / Wartung</span>
+          <span>Monat/Agenda: Eintrag anklicken → Details · Woche: Zeitslot anklicken → buchen</span>
         </div>
       </div>
 
       {/* Detail */}
-      <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title="Termin" width={440}
-        footer={detail && <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteTermin(detail.id); toast('Termin gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>}>
+      <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title={detail && detail.kind === 'belegung' ? 'Belegung' : 'Auftrag'} width={440}
+        footer={detail && (detail.kind === 'belegung'
+          ? <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteBelegung(detail.id); toast('Belegung gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>
+          : <><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn><window.UI.Btn icon="arrowRight" onClick={() => { const id = detail.id; setDetail(null); nav('auftrag', { id }); }}>Auftrag öffnen</window.UI.Btn></>)}>
         {detail && (() => {
-          const k = detail.quellTyp === 'privat' ? { name: 'Privat (Julian)', phone: '', email: '' } : (store.kundeById(detail.kundeId) || { name: detail.typ === 'wartung' ? 'Wartung' : 'Belegung', phone: '', email: '' });
           const g = store.geraetById(detail.geraetId);
+          if (detail.kind === 'belegung') {
+            const gr = F.BELEGUNG_GRUND[detail.grund] || { label: detail.grund };
+            return (
+              <div className="stack" style={{ gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <window.GeraetBadge geraet={g} size={40} />
+                  <div><div style={{ fontWeight: 700 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+                </div>
+                <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 7, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="flotte" size={15} /> {gr.label}</div>
+                  <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Datum:</b> {F.fmtDate(detail.von)}{detail.bis !== detail.von ? ' – ' + F.fmtDate(detail.bis) : ''}</div>
+                  <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Uhrzeit:</b> {detail.vonZeit || '08:00'} – {detail.bisZeit || '17:00'}</div>
+                  {detail.ort && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Ort:</b> {detail.ort}</div>}
+                  {detail.notiz && <div style={{ padding: '8px 11px', background: 'var(--paper-3)', borderRadius: 'var(--r)', fontSize: 12.5 }}>{detail.notiz}</div>}
+                </div>
+              </div>
+            );
+          }
+          const k = store.kundeById(detail.kundeId) || { name: 'Vermietung' };
+          const reserv = detail.status === 'anfrage' || detail.status === 'angebot';
           return (
             <div className="stack" style={{ gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <window.GeraetBadge geraet={g} size={40} />
-                <div><div style={{ fontWeight: 700 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <window.GeraetBadge geraet={g} size={40} />
+                  <div><div style={{ fontWeight: 700 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+                </div>
+                <window.Pill status={detail.status} />
               </div>
               <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 7, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-                <div onClick={() => { setDetail(null); nav('kunde', { id: k?.id }); }} style={{ cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="kunden" size={15} />{k?.name}</div>
+                <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="kunden" size={15} />{k?.name}</div>
                 <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Datum:</b> {F.fmtDate(detail.von)}{detail.bis !== detail.von ? ' – ' + F.fmtDate(detail.bis) : ''}</div>
                 <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Uhrzeit:</b> {detail.vonZeit || '08:00'} – {detail.bisZeit || '17:00'}</div>
                 {detail.ort && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Ort:</b> {detail.ort}</div>}
-                {detail.quellTyp === 'reservierung' && <div style={{ padding: '8px 11px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--warn)', fontWeight: 600 }}>⚠ Reservierung — Angebot {detail.quellId} noch ausstehend</div>}
+                {reserv && <div style={{ padding: '8px 11px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--warn)', fontWeight: 600 }}>⚠ Noch nicht fest gebucht – Angebot offen.</div>}
               </div>
             </div>
           );
@@ -431,46 +469,61 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
       </window.UI.Modal>
 
       {/* Add modal */}
-      <window.UI.Modal open={!!modal} onClose={() => setModal(null)} title="Neuer Termin" width={480}
-        footer={<><window.UI.Btn variant="ghost" onClick={() => setModal(null)}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={save}>Buchen</window.UI.Btn></>}>
+      <window.UI.Modal open={!!modal} onClose={() => setModal(null)} title={art === 'belegung' ? 'Maschine blocken' : 'Vermietung buchen'} width={480}
+        footer={<><window.UI.Btn variant="ghost" onClick={() => setModal(null)}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={save}>{art === 'belegung' ? 'Blocken' : 'Buchen'}</window.UI.Btn></>}>
         {modal && (
           <div className="stack" style={{ gap: 14 }}>
+            {/* Art-Umschalter */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['vermietung', 'Vermietung (Kunde)'], ['belegung', 'Privat / Wartung']].map(([m, label]) => (
+                <button key={m} onClick={() => { setArt(m); setConflict(null); }}
+                  style={{ flex: 1, padding: '9px 6px', fontSize: 13, fontWeight: 600, border: '1.5px solid', borderRadius: 'var(--r)', cursor: 'pointer', fontFamily: 'var(--sans)',
+                    borderColor: art === m ? 'var(--ink)' : 'var(--line-2)', background: art === m ? 'var(--ink)' : 'var(--paper)', color: art === m ? '#fff' : 'var(--muted)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
             {conflict && <div style={{ display: 'flex', gap: 10, padding: '11px 13px', background: 'var(--danger-wash)', borderRadius: 'var(--r)', color: 'var(--danger)', fontSize: 13 }}><Icon name="alert" size={18} style={{ flex: '0 0 auto' }} />{conflict.msg}</div>}
             <window.UI.Field label="Gerät">
               <window.UI.Select value={modal.geraetId} onChange={(e) => { setModal({ ...modal, geraetId: e.target.value }); setConflict(null); }}>
                 {machines.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </window.UI.Select>
             </window.UI.Field>
-            <window.UI.Field label="Kunde">
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                {[['liste', 'Aus Liste'], ['neu', 'Neuer Kunde'], ['privat', 'Privat (Julian)']].map(([mode, label]) => (
-                  <button key={mode} onClick={() => { setKundeMode(mode); setConflict(null); }}
-                    style={{ flex: 1, padding: '7px 4px', fontSize: 12, fontWeight: 600, border: '1.5px solid', borderRadius: 'var(--r)', cursor: 'pointer', fontFamily: 'var(--sans)',
-                      borderColor: kundeMode === mode ? 'var(--yellow-deep)' : 'var(--line)',
-                      background: kundeMode === mode ? 'var(--yellow-wash)' : 'transparent',
-                      color: kundeMode === mode ? 'var(--yellow-deep)' : 'var(--muted)' }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {kundeMode === 'liste' && (
-                <window.UI.Select value={modal.kundeId} onChange={(e) => setModal({ ...modal, kundeId: e.target.value })}>
-                  {store.db.kunden.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+            {art === 'vermietung' ? (
+              <window.UI.Field label="Kunde">
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {[['liste', 'Aus Liste'], ['neu', 'Neuer Kunde']].map(([mode, label]) => (
+                    <button key={mode} onClick={() => { setKundeMode(mode); setConflict(null); }}
+                      style={{ flex: 1, padding: '7px 4px', fontSize: 12.5, fontWeight: 600, border: '1.5px solid', borderRadius: 'var(--r)', cursor: 'pointer', fontFamily: 'var(--sans)',
+                        borderColor: kundeMode === mode ? 'var(--yellow-deep)' : 'var(--line)',
+                        background: kundeMode === mode ? 'var(--yellow-wash)' : 'transparent',
+                        color: kundeMode === mode ? 'var(--yellow-deep)' : 'var(--muted)' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {kundeMode === 'liste' && (
+                  <window.UI.Select value={modal.kundeId} onChange={(e) => setModal({ ...modal, kundeId: e.target.value })}>
+                    <option value="">— bitte wählen —</option>
+                    {store.db.kunden.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+                  </window.UI.Select>
+                )}
+                {kundeMode === 'neu' && (
+                  <div className="stack" style={{ gap: 8 }}>
+                    <window.UI.Input placeholder="Name *" value={neuerKunde.name} onChange={(e) => setNeuerKunde({ ...neuerKunde, name: e.target.value })} />
+                    <window.UI.Input placeholder="Telefon" value={neuerKunde.phone} onChange={(e) => setNeuerKunde({ ...neuerKunde, phone: e.target.value })} />
+                    <window.UI.Input placeholder="E-Mail" value={neuerKunde.email} onChange={(e) => setNeuerKunde({ ...neuerKunde, email: e.target.value })} />
+                  </div>
+                )}
+              </window.UI.Field>
+            ) : (
+              <window.UI.Field label="Grund" hint="Blockt die Maschine im Kalender – ohne Auftrag, ohne Rechnung.">
+                <window.UI.Select value={modal.grund} onChange={(e) => setModal({ ...modal, grund: e.target.value })}>
+                  <option value="privat">Privat / Verleih an Familie & Freunde</option>
+                  <option value="wartung">Wartung</option>
                 </window.UI.Select>
-              )}
-              {kundeMode === 'neu' && (
-                <div className="stack" style={{ gap: 8 }}>
-                  <window.UI.Input placeholder="Name *" value={neuerKunde.name} onChange={(e) => setNeuerKunde({ ...neuerKunde, name: e.target.value })} />
-                  <window.UI.Input placeholder="Telefon" value={neuerKunde.phone} onChange={(e) => setNeuerKunde({ ...neuerKunde, phone: e.target.value })} />
-                  <window.UI.Input placeholder="E-Mail" value={neuerKunde.email} onChange={(e) => setNeuerKunde({ ...neuerKunde, email: e.target.value })} />
-                </div>
-              )}
-              {kundeMode === 'privat' && (
-                <div style={{ padding: '9px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                  Maschine wird für Julian / Privat geblockt.
-                </div>
-              )}
-            </window.UI.Field>
+              </window.UI.Field>
+            )}
             <div className="form-2">
               <window.UI.Field label="Von (Datum)"><window.UI.Input type="date" value={modal.von} onChange={(e) => { setModal({ ...modal, von: e.target.value }); setConflict(null); }} /></window.UI.Field>
               <window.UI.Field label="Bis (Datum)"><window.UI.Input type="date" value={modal.bis} onChange={(e) => { setModal({ ...modal, bis: e.target.value }); setConflict(null); }} /></window.UI.Field>
@@ -479,7 +532,8 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
               <window.UI.Field label="Von (Uhrzeit)"><window.UI.Input type="time" value={modal.vonZeit} onChange={(e) => setModal({ ...modal, vonZeit: e.target.value })} /></window.UI.Field>
               <window.UI.Field label="Bis (Uhrzeit)"><window.UI.Input type="time" value={modal.bisZeit} onChange={(e) => setModal({ ...modal, bisZeit: e.target.value })} /></window.UI.Field>
             </div>
-            <window.UI.Field label="Einsatzort"><window.UI.Input value={modal.ort} onChange={(e) => setModal({ ...modal, ort: e.target.value })} placeholder="z. B. Baustelle Siegburg" /></window.UI.Field>
+            <window.UI.Field label={art === 'belegung' ? 'Ort (optional)' : 'Einsatzort'}><window.UI.Input value={modal.ort} onChange={(e) => setModal({ ...modal, ort: e.target.value })} placeholder={art === 'belegung' ? 'z. B. Werkstatt' : 'z. B. Baustelle Siegburg'} /></window.UI.Field>
+            {art === 'belegung' && <window.UI.Field label="Notiz (optional)"><window.UI.Input value={modal.notiz} onChange={(e) => setModal({ ...modal, notiz: e.target.value })} placeholder="z. B. Inspektion" /></window.UI.Field>}
           </div>
         )}
       </window.UI.Modal>

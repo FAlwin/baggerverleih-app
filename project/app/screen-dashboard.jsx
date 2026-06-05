@@ -47,7 +47,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
   const NEU_ITEMS = [
     { icon: 'rechnung', label: 'Neue Rechnung',  sub: 'Direkt in Rechnung stellen',  go: ['rechnung-neu', { mode: 'rechnung' }] },
     { icon: 'angebot',  label: 'Neues Angebot',  sub: 'Angebot erstellen & versenden', go: ['rechnung-neu', { mode: 'angebot' }] },
-    { icon: 'kalender', label: 'Neuer Termin',   sub: 'Gerät im Kalender buchen',     go: ['kalender'] },
+    { icon: 'kalender', label: 'Maschine buchen', sub: 'Direkt im Kalender eintragen',  go: ['kalender', { neu: 'auftrag' }] },
     { icon: 'kunden',   label: 'Neuer Kunde',    sub: 'Kundenstamm ergänzen',         go: ['kunden'] },
   ];
 
@@ -100,7 +100,10 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
           {/* Timeline: alle Tage, alle Buchungen */}
           <div style={{ flex: 1, overflow: 'auto' }}>
             {days.map((day, di) => {
-              const dayTermine = store.db.termine.filter((t) => day >= t.von && day <= t.bis);
+              const dayTermine = [
+                ...store.db.auftraege.map((a) => ({ ...a, kind: 'auftrag' })),
+                ...(store.db.belegungen || []).map((b) => ({ ...b, kind: 'belegung' })),
+              ].filter((t) => day >= t.von && day <= t.bis);
               const [dy,dm,dd] = day.split('-').map(Number);
               const wd = WD[(new Date(dy, dm-1, dd).getDay() + 6) % 7];
               const isToday = day === store.today;
@@ -118,14 +121,15 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
                       ? <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>frei</span>
                       : dayTermine.map((t) => {
                           const g = store.geraetById(t.geraetId);
-                          const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
-                          const isRes = t.quellTyp === 'reservierung';
-                          const bg = isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
-                          const col = isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
+                          const isBel = t.kind === 'belegung';
+                          const isRes = !isBel && (t.status === 'anfrage' || t.status === 'angebot');
+                          const name = isBel ? (F.BELEGUNG_GRUND[t.grund]?.label || 'Belegung') : (store.kundeById(t.kundeId)?.name || 'Vermietung');
+                          const bg = isBel ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
+                          const col = isBel ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
                           return (
-                            <button key={t.id} onClick={() => setBelegDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 6px', background: bg, border: isRes ? '1px dashed var(--warn)' : 'none', borderRadius: 3, cursor: 'pointer', font: 'inherit', color: col }}>
+                            <button key={t.id} onClick={() => setBelegDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 6px', background: bg, border: isRes ? '1px dashed var(--warn)' : isBel ? '1px solid var(--line-2)' : 'none', borderRadius: 3, cursor: 'pointer', font: 'inherit', color: col }}>
                               {g && <window.GeraetBadge geraet={g} size={18} />}
-                              <span style={{ fontSize: 12, fontWeight: 700 }}>{k?.name?.split(' ').slice(-1)[0]}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700 }}>{name.split(' ').slice(-1)[0]}</span>
                               {t.vonZeit && <span style={{ fontSize: 11, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</span>}
                             </button>
                           );
@@ -170,28 +174,34 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
         </div>
       </div>
 
-      {/* Belegungs-Detail-Modal (Dashboard → Auftrag) */}
-      <window.UI.Modal open={!!belegDetail} onClose={() => setBelegDetail(null)} title="Belegung" width={420}
-        footer={belegDetail && <>
-          <window.UI.Btn variant="ghost" onClick={() => { setBelegDetail(null); nav('auftraege'); }}>Alle Aufträge</window.UI.Btn>
-          {belegDetail.id && <window.UI.Btn onClick={() => { setBelegDetail(null); nav('auftrag', { id: belegDetail.id }); }}>Auftrag öffnen</window.UI.Btn>}
-          <window.UI.Btn variant="ghost" onClick={() => setBelegDetail(null)}>Schließen</window.UI.Btn>
-        </>}>
+      {/* Belegungs-Detail-Modal (Dashboard → Auftrag/Belegung) */}
+      <window.UI.Modal open={!!belegDetail} onClose={() => setBelegDetail(null)} title={belegDetail && belegDetail.kind === 'belegung' ? 'Belegung' : 'Auftrag'} width={420}
+        footer={belegDetail && (belegDetail.kind === 'belegung'
+          ? <window.UI.Btn variant="ghost" onClick={() => { setBelegDetail(null); nav('kalender'); }}>Im Kalender</window.UI.Btn>
+          : <>
+              <window.UI.Btn variant="ghost" onClick={() => setBelegDetail(null)}>Schließen</window.UI.Btn>
+              <window.UI.Btn icon="arrowRight" onClick={() => { const id = belegDetail.id; setBelegDetail(null); nav('auftrag', { id }); }}>Auftrag öffnen</window.UI.Btn>
+            </>)}>
         {belegDetail && (() => {
           const g = store.geraetById(belegDetail.geraetId);
-          const k = belegDetail.quellTyp === 'privat' ? { name: 'Privat (Julian)' } : (store.kundeById(belegDetail.kundeId) || { name: belegDetail.typ === 'wartung' ? 'Wartung' : 'Belegung' });
+          const isBel = belegDetail.kind === 'belegung';
+          const name = isBel ? (F.BELEGUNG_GRUND[belegDetail.grund]?.label || 'Belegung') : (store.kundeById(belegDetail.kundeId)?.name || 'Vermietung');
+          const isRes = !isBel && (belegDetail.status === 'anfrage' || belegDetail.status === 'angebot');
           return (
             <div className="stack" style={{ gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {g && <window.GeraetBadge geraet={g} size={40} />}
-                <div><div style={{ fontWeight: 700, fontSize: 15 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {g && <window.GeraetBadge geraet={g} size={40} />}
+                  <div><div style={{ fontWeight: 700, fontSize: 15 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+                </div>
+                {!isBel && <window.Pill status={belegDetail.status} />}
               </div>
               <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 7, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-                <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="kunden" size={15} color="var(--muted)" />{k?.name}</div>
+                <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name={isBel ? 'flotte' : 'kunden'} size={15} color="var(--muted)" />{name}</div>
                 <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Datum:</b> {F.fmtDate(belegDetail.von)}{belegDetail.bis !== belegDetail.von ? ' – ' + F.fmtDate(belegDetail.bis) : ''}</div>
                 {belegDetail.vonZeit && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Uhrzeit:</b> {belegDetail.vonZeit}–{belegDetail.bisZeit}</div>}
                 {belegDetail.ort && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Ort:</b> {belegDetail.ort}</div>}
-                {belegDetail.quellTyp === 'reservierung' && <div style={{ padding: '8px 11px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--warn)', fontWeight: 600 }}>⚠ Reservierung – Angebot noch offen</div>}
+                {isRes && <div style={{ padding: '8px 11px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--warn)', fontWeight: 600 }}>⚠ Noch nicht fest gebucht – Angebot offen.</div>}
               </div>
             </div>
           );
