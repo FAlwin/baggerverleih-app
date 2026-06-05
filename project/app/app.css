@@ -1,0 +1,76 @@
+/* ============ App-Layout-Utilities + Druck (A4) ============ */
+
+.content-pad { padding: 24px; }
+.stack { display: flex; flex-direction: column; }
+
+/* Dashboard */
+.dash-strip { display: grid; grid-template-columns: repeat(5, 1fr); }
+.dash-cols  { display: grid; grid-template-columns: 1.7fr 1fr; gap: 18px; align-items: start; }
+
+/* generic responsive split */
+.split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-2  { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* Tabellen */
+.fr-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.fr-table th { text-align: left; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 11px 14px; border-bottom: 1.5px solid var(--line); white-space: nowrap; }
+.fr-table td { padding: 13px 14px; border-bottom: 1px solid var(--paper-3); vertical-align: middle; }
+.fr-table tbody tr { transition: background .1s; }
+.fr-table tbody tr:hover { background: var(--paper-2); }
+.fr-table tbody tr:last-child td { border-bottom: none; }
+.num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+.hint { font-size: 12px; color: var(--muted); }
+
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; opacity: .35; transition: opacity .12s; }
+.fr-table tbody tr:hover .row-actions { opacity: 1; }
+
+/* ---- Desktop breakpoints ---- */
+@media (max-width: 1100px) { .dash-strip { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1000px) { .dash-cols { grid-template-columns: 1fr; } }
+
+/* ---- Mobile (≤900px) — Bottom-Nav-App-Mode ---- */
+@media (max-width: 900px) {
+  .content-pad { padding: 14px 16px 88px; }
+  .form-2, .split-2 { grid-template-columns: 1fr; gap: 12px; }
+  .dash-strip { grid-template-columns: repeat(2, 1fr); }
+  .dash-cols  { grid-template-columns: 1fr; gap: 14px; }
+  .hide-sm { display: none !important; }
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .fr-table td, .fr-table th { padding: 12px 12px; }
+  .fr-table { font-size: 13px; }
+  .row-actions { opacity: 1; }
+}
+
+/* ---- Very small (≤400px) ---- */
+@media (max-width: 400px) {
+  .content-pad { padding: 12px 12px 88px; }
+  .dash-strip { grid-template-columns: 1fr 1fr; }
+}
+
+/* ===================== DRUCK / PDF (A4) ===================== */
+.print-doc { display: none; }
+
+/* Hintergrundfarben & -bilder beim Drucken erzwingen (Tabellen-Header, gelbe Box, §19-Hinweis) */
+.print-doc, .print-doc * {
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+  color-adjust: exact !important;
+}
+
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  html, body {
+    margin: 0 !important; padding: 0 !important; background: #fff !important;
+    width: auto !important; height: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Komplette App ausblenden – nur das per Portal angehängte Druck-Dokument bleibt */
+  #root { display: none !important; }
+  .print-doc {
+    display: block !important;
+    width: 210mm !important;
+  }
+  .no-print { display: none !important; }
+  .page-break { page-break-before: always; break-before: page; }
+}

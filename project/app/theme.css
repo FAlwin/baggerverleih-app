@@ -1,0 +1,87 @@
+/* ============================================================
+   FRIESEN BAGGERVERLEIH — Industrial Design System
+   Schwarz (#141414) · Gelb (#F7C72A) · Weiß · IBM Plex
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* Ink / dark surfaces */
+  --ink:        #141414;
+  --ink-2:      #1d1d1c;
+  --ink-3:      #262625;
+  --ink-line:   rgba(255,255,255,0.10);
+  --ink-line-2: rgba(255,255,255,0.16);
+
+  /* Accent */
+  --yellow:      #F7C72A;
+  --yellow-deep: #E0AC00;
+  --yellow-soft: #FBE9A0;
+  --yellow-wash: #FDF6DC;
+
+  /* Paper / light surfaces */
+  --paper:    #FFFFFF;
+  --paper-2:  #F5F5F2;
+  --paper-3:  #ECECE8;
+  --line:     #E2E2DD;
+  --line-2:   #D2D2CB;
+
+  /* Text */
+  --text:     #141414;
+  --muted:    #525250;
+  --muted-2:  #787870;
+  --on-dark:  #F2F2EF;
+  --on-dark-muted: #A7A7A0;
+
+  /* Status */
+  --ok:        #2F7D3A;   /* Bezahlt */
+  --ok-wash:   #E7F2E6;
+  --open:      #2B6CB0;   /* Offen */
+  --open-wash: #E7EFF7;
+  --warn:      #D9772B;   /* Überfällig */
+  --warn-wash: #FBEDDF;
+  --danger:    #C0392B;   /* Mahnung */
+  --danger-wash:#FBE7E4;
+  --draft:     #8A8A82;   /* Entwurf / Angebot */
+
+  /* Geometry */
+  --r:   3px;
+  --r-lg: 5px;
+  --bd:  1.5px;
+
+  --shadow-sm: 0 1px 2px rgba(20,20,20,0.06);
+  --shadow:    0 4px 16px rgba(20,20,20,0.08);
+  --shadow-lg: 0 18px 48px rgba(20,20,20,0.16);
+
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* Hazard-stripe utility (industrial motif, use sparingly) */
+.hazard {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--ink) 0 12px,
+    var(--yellow) 12px 24px
+  );
+}
+.hazard-thin {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--ink) 0 6px,
+    var(--yellow) 6px 12px
+  );
+}
+
+* { box-sizing: border-box; }
+
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+
+/* Uppercase tracked micro-label */
+.kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}

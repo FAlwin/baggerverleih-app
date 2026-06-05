@@ -1,0 +1,13 @@
+# Sensible Dokumente – nie ins Repo
+Unterlagen/
+
+# Uploads (Nutzerdaten)
+project/uploads/
+
+# macOS Resource Forks
+._*
+**/.DS_Store
+.DS_Store
+
+# Screenshots (groß, nicht nötig für Deployment)
+project/screenshots/
