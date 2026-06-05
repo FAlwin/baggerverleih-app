@@ -1,22 +1,27 @@
-# CODING AGENTS: READ THIS FIRST
+# Friesen Bau- und Mietservice — Verwaltungs-App
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+Verwaltungssoftware für den Bagger- und Geräteverleih von Julian Friesen, Lohmar.
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+## Prototyp starten
 
-## What you should do — IMPORTANT
+```bash
+cd project
+python3 -m http.server 8181
+# → http://localhost:8181/Friesen%20Baggerverleih.html
+```
 
-**Read `baggerverleih-app/project/Friesen Baggerverleih.html` in full.** The user had this file open when they triggered the handoff, so it's almost certainly the primary design they want built. Read it top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+## Projektstruktur
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+```
+project/
+  Friesen Baggerverleih.html   ← App-Einstiegspunkt
+  app/                         ← React-Komponenten (JSX)
+  contact.html                 ← Kontaktformular
+```
 
-## About the design files
+## GitHub Pages
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+Die App ist über GitHub Pages erreichbar:
+`https://falwin.github.io/baggerverleih-app/`
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
-
-## Bundle contents
-
-- `baggerverleih-app/README.md` — this file
-- `baggerverleih-app/project/` — the `Baggerverleih App` project files (HTML prototypes, assets, components)
+Alle Daten liegen im localStorage des Browsers (Prototyp-Stand).
