@@ -120,15 +120,21 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 
 ```js
 COMPANY       // Stammdaten Inhaber (Name, Adresse, IBAN, Steuernummer, ...)
-FLOTTE        // Geräte: id, name, detail, kat, kuerzel, farbe, tarif[]
+FLOTTE        // Geräte: id, name, detail, kat, kuerzel, farbe, tarif[] (inkl. „Tag"-Tarif)
 PREISLISTE    // Sonderleistungen: Transport, Reinigung (id, geraet, einheit, preis)
 KUNDEN        // id, name, kontakt, street, city, phone, email, typ (Privat|Gewerbe)
-RECHNUNGEN    // id, kundeId, datum, faellig, status, positionen[], betrag, bezahltAm?
-ANGEBOTE      // id, kundeId, datum, gueltigBis, status, positionen[], betrag
-TERMINE       // id, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort, quellTyp, quellId?
-BUCHUNGEN     // id, ...
-ANFRAGEN      // id, datum, status, ...
+RECHNUNGEN    // id, kundeId, datum, faellig, status, positionen[], betrag, bezahltAm?, auftragId?
+ANGEBOTE      // id, kundeId, datum, gueltigBis, status, positionen[], betrag, auftragId?, von?, bis?, geraetId?, ort?
+AUFTRAEGE     // ZENTRALE KLAMMER (ersetzt TERMINE): id, typ, geraetId, kundeId, von, bis, vonZeit, bisZeit,
+              //   ort, status, anfrageId?, angebotId?, rechnungId?, notiz, mietvertrag?{signaturVermieter,signaturMieter,positionen,datum,gesperrt}
+BELEGUNGEN    // Gerät OHNE Auftrag geblockt (Privat/Wartung): id, grund, geraetId, von, bis, ... (nur Kalender, kein Status/Kunde)
+BUCHUNGEN     // id, datum, art (e|a), kategorie, text, betrag
+ANFRAGEN      // id, datum, name, phone, email, geraetId, von, bis, ort, nachricht, status (neu|in-bearbeitung|erledigt)
+SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So), nummern{}
 ```
+
+**Auftrag-Lebenszyklus (`AUFTRAG_FLOW`):** `anfrage → angebot → reserviert → abgerechnet → bezahlt → abgeschlossen`.
+Jeder Beleg (Angebot/Rechnung) gehört zu einem Auftrag; Erstellung läuft **immer über den Auftrag**.
 
 **Wichtig:** `kleinunternehmer: true` → keine USt auf Rechnungen, Pflichthinweis:
 *"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."*
@@ -199,14 +205,17 @@ baggerverleih-app/
     │   ├── print.jsx                  ← Druckansicht Rechnungen
     │   ├── theme.css / app.css        ← Design-System
     │   ├── screen-dashboard.jsx
+    │   ├── screen-auftraege.jsx       ← Auftrag-Liste + Auftrag-Detail (Schaltzentrale)
+    │   ├── screen-belege.jsx          ← „Belege": Tabs Angebote/Rechnungen
     │   ├── screen-rechnungen.jsx
-    │   ├── screen-rechnung-neu.jsx
-    │   ├── screen-angebote.jsx
+    │   ├── screen-rechnung-neu.jsx    ← Neues Angebot / Neue Rechnung (immer via Auftrag)
+    │   ├── screen-angebote.jsx        ← inkl. window.VersendModal (generisch)
     │   ├── screen-kalender.jsx
     │   ├── screen-kunden.jsx
     │   ├── screen-buchhaltung.jsx
     │   ├── screen-flotte.jsx
-    │   └── screen-anfragen.jsx
+    │   ├── screen-anfragen.jsx
+    │   └── screen-einstellungen.jsx   ← Firmendaten, Zahlungsziel, Gültigkeit, Vermiet-Wochentage, Nummernkreise
     └── screenshots/                   ← Visuelle Referenz
 ```
 
@@ -214,58 +223,73 @@ baggerverleih-app/
 
 ## Prototyp-Implementierungsstand (Stand: Juni 2026)
 
-Der Prototyp läuft unter `http://localhost:8181/Friesen%20Baggerverleih.html` via Python HTTP-Server:
+Lokal starten (Port frei wählbar, siehe Babel-Cache-Hinweis unten):
 ```bash
 cd "/Volumes/nas.familieneufeld.de/homes/alwinf/Drive/Baggerverleih_App/project"
-python3 -m http.server 8181
+python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverleih.html
 ```
+`.claude/launch.json` ist für die Preview-MCP hinterlegt (Server „friesen", Port 8195).
 
-### Umgesetzte Features (über Handoff hinaus)
+### Architektur & Konventionen (WICHTIG – hier zuerst lesen)
 
-**Druck / PDF (print.jsx + app.css)**
-- `Print.RechnungDoc`, `Print.AngebotDoc`, `Print.MietvertragDoc`, `Print.MietbedingungenPage`
-- Druckdokument per **React Portal** direkt an `<body>` gehängt → beim Druck wird `#root` ausgeblendet (`display: none`), kein Rest-Layout → echtes A4 ohne Browser-Skalierung
-- `@page { size: A4 portrait; margin: 0 }`, Dokument exakt `210mm × 297mm`
-- Hintergrundfarben erzwungen: `print-color-adjust: exact` auf `.print-doc` und `*`
-- Footer: `position: absolute; bottom: 12mm` (funktioniert wegen `height: 297mm; position: relative`)
-- Mietvertrag Seite 1: Kurzfassung §2 (9.5px, columns: 2) + Hinweis auf Seite 2 mit vollständigen Bedingungen
-- Mietbedingungen als separate Seite 2 mit allen 8 Paragraphen aus Mietbedingungen.docx
+- **`window.*`-Registry-Pattern, kein Build-Schritt.** Jede Datei hängt sich an Globals:
+  `window.Screens`, `window.useStore()`, `window.UI.*`, `window.Icon`, `window.Print.*`, `window.PDF`,
+  `window.FRIESEN`, `window.PageHeader`, `window.addDays`/`berechneEnde`/`tageZwischen`/`istMiettag`,
+  `window.__nav`/`__goBack`/`__miettage`. Reihenfolge der `<script>`-Tags in der HTML ist relevant.
+- **DB:** localStorage-Key `friesen_db_v4`. `loadDB()` mergt fehlende settings-Defaults nach (für Alt-Stände).
+- **React-Batching-Falle:** Rückgabewerte aus `setDb`-Updatern sind über mehrere Aufrufe unzuverlässig.
+  → IDs **vorab** via `store.nextId(...)` aus `store.db` berechnen und Anlegen+Verknüpfen **atomar in EINEM `setDb`**
+  machen (`belegAnlegen`, `annehmenAnfrage`).
+- **Babel-Cache-Busting:** Geänderte `.jsx` werden vom selben Origin oft gecacht. Beim Testen Server auf
+  **neuem Port** starten oder URL mit `?v=<timestamp>` laden + Hard-Reload.
+- **Undo:** Snapshot-basiert. Vor destruktiver Aktion `const snap = store.snapshot()`, dann
+  `toast('… gelöscht', { undo: () => store.restoreSnapshot(snap) })`. Toast: 10 s mit Countdown-Balken.
 
-**Navigation (app.jsx)**
-- History-Stack: Zurück-Button nur innerhalb von Sub-Screens, nicht auf Haupt-Nav-Ebene
-- `TOP_SCREENS` Set verhindert History-Push für Haupt-Navigation
-- `window.__goBack` global für PageHeader-Zugriff
+### Zentrale Bausteine
 
-**Kalender (screen-kalender.jsx)**
-- Wochenansicht: Stunden-Achse 07:00–19:00, 52px pro Stunde, alle Maschinen in derselben Tagesspalte
-- Monatsansicht: Buchungs-Badges mit Maschinenfarbe + Kürzel + Vorname
-- Neuer Termin: 3-Tab-Modus (Liste / Neuer Kunde / Privat), erstellt Kunde via `store.addKunde()`
-- „Privat (Julian)": `quellTyp: 'privat'`, blockiert Gerät ohne Kunden-Referenz
+**Auftrag = Schaltzentrale (`screen-auftraege.jsx`)**
+- `window.Screens.auftrag` (Detail) führt durch den Flow (`nextStep`), zeigt Beleg-Kacheln
+  (Angebot/Mietvertrag/Rechnung/Kalender). Kachel-Überschrift = Button → `DocPreviewModal` (A4-Vorschau).
+- Mietvertrag-Kachel erst aktiv, wenn Angebot **oder** Rechnung existiert.
+- Status manuell korrigieren: Zurücksetzen → `setAuftragStatusKaskade` (setzt bezahlte Rechnung zurück) +
+  Warnung; Überspringen → Warnung. **bezahlt** und **Mahnung** schließen sich aus.
 
-**Dashboard (screen-dashboard.jsx)**
-- Wocheneinsatzplan: Timeline statt Matrix – ein Tag pro Zeile, Buchungen als farbige Chips
+**Belege zusammengefasst (`screen-belege.jsx`)**
+- Ein Nav-Punkt „Belege" mit Tabs Angebote/Rechnungen; rendert die bestehenden Listen-Screens mit
+  `PageHeader = () => null`. `nav('rechnungen'|'angebote')` wird in `app.jsx` automatisch auf
+  `belege` mit `params.tab` umgeleitet. Erstellung läuft nur noch über den Auftrag.
 
-**Angebote (screen-angebote.jsx)**
-- Zeilen klickbar → Detail-Modal (wie Rechnungen)
-- Edit öffnet erst nach Schließen des Detail-Modals (kein Übereinander)
-- Drucken via `Print.AngebotDoc` + `Print.MietbedingungenPage`
+**PDF-Download statt Druck (`print.jsx`)**
+- `window.PDF.download(reactDoc, filename)` rendert das Dokument unsichtbar und erzeugt per **html2pdf**
+  (CDN) eine A4-PDF ohne Druckdialog. Überall „PDF herunterladen" statt `window.print()`.
+- `Print.RechnungDoc/AngebotDoc/MietvertragDoc/MietbedingungenPage` rendern exakt `210mm × 297mm`.
 
-**Rechnungen (screen-rechnungen.jsx)**
-- Unterschriften-Pad (Canvas, Touch + Maus) für Vermieter und Mieter
-- `Print.MietvertragDoc` nimmt `signaturVermieter` / `signaturMieter` als Base64-PNG
+**Mietvertrag-Unterschrift (`ui.jsx` SignaturPad + store)**
+- Pad ist Vollbild-Overlay, auf dem Handy mit Querformat-Hinweis (+ optional Fullscreen/Orientation-Lock,
+  iOS ignoriert das still). `store.mietvertragSign(auftragId, 'v'|'m', dataUrl)` speichert persistent im
+  Auftrag; nach **beidseitiger** Unterschrift `mietvertrag.gesperrt = true` → unveränderlich, kein erneutes
+  Unterschreiben. Positionen werden beim ersten Unterschreiben als Snapshot festgehalten.
 
-**Buchhaltung (screen-buchhaltung.jsx)**
-- Filter: Jahr, Monat, Datumsbereich, Einnahmen/Ausgaben
-- Saldo-Label dynamisch: „Saldo (gefiltert)" wenn Filter aktiv
+**Zeitraum & Vermiet-Wochentage**
+- `UI.ZeitraumPicker`: Start + Dauer (Tage/Stunden) → Ende via `window.berechneEnde`.
+- `settings.mietWochentage[7]` (0=So). Abgewählte Tage: keine Buchung **und** zählen nicht als Miettag –
+  `berechneEnde` überspringt sie (liest `window.__miettage`), Enddatum verschiebt sich. `angebotGueltigTage`
+  steuert die Angebots-Gültigkeit. Beides in `screen-einstellungen.jsx` editierbar.
 
-**Design**
-- `--muted: #525250`, `--muted-2: #787870` (dunkler als Handoff)
-- Flotte: Bearbeiten-Button mit gelbem Hintergrund
+**Versenden (`screen-angebote.jsx` → `window.VersendModal`)**
+- Generisch für `kind: 'angebot'|'rechnung'|'mietvertrag'` (E-Mail/WhatsApp/SMS, Text vorausgefüllt).
+  Verfügbar in Vorschau **und** Kachel. PDF-Anhang muss manuell angehängt werden (kein Backend).
+
+**Weiteres**
+- Konfliktprüfung `store.findConflict`; Angebot zeigt frei/belegt + „nächster freier Start".
+- `normalizeOverdue`: offene Rechnungen mit Fälligkeit < heute werden beim Laden als „überfällig" geführt.
+- Live-A4-Vorschau via `window.useFitScale(793)`.
 
 ### Bekannte Einschränkungen (Prototyp)
-- Unterschriften-Pad: Nur Vorbereitung, kein Backend – Daten nur im React-State
-- Alle Daten im localStorage (kein persistentes Backend)
-- Babel-Kompilierung im Browser: kein Build-Schritt, langsamer Start
+- Kein Backend: alle Daten im localStorage; Versand-PDF wird nicht automatisch angehängt.
+- Babel-Kompilierung im Browser: kein Build-Schritt, langsamer Start, Cache-Busting nötig (s. o.).
+- **Standalone-HTML** (`Friesen Baggerverleih - Standalone.html`) wird NICHT automatisch mitgebaut –
+  vor Weitergabe an Julian separat neu erzeugen. GitHub Pages nutzt die normale HTML mit `app/*.jsx`.
 
 ---
 
