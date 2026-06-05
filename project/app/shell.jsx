@@ -2,6 +2,7 @@
 const NAV = [
   { id: 'dashboard',   icon: 'dashboard',   label: 'Dashboard' },
   { id: 'anfragen',    icon: 'bell',        label: 'Anfragen', badge: true },
+  { id: 'auftraege',   icon: 'file',        label: 'Aufträge' },
   { id: 'rechnungen',  icon: 'rechnung',    label: 'Rechnungen' },
   { id: 'angebote',    icon: 'angebot',     label: 'Angebote' },
   { id: 'kalender',    icon: 'kalender',    label: 'Kalender' },

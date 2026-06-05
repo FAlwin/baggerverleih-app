@@ -117,7 +117,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
                       ? <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>frei</span>
                       : dayTermine.map((t) => {
                           const g = store.geraetById(t.geraetId);
-                          const k = t.quellTyp === 'privat' ? { name: 'Privat' } : store.kundeById(t.kundeId);
+                          const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
                           const isRes = t.quellTyp === 'reservierung';
                           const bg = isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
                           const col = isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');

@@ -133,7 +133,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
                     {ts.slice(0, 3).map((t) => {
                       const g = store.geraetById(t.geraetId);
-                      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : store.kundeById(t.kundeId);
+                      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
                       if (!g) return null;
                       const isRes = t.quellTyp === 'reservierung';
                       const isPrivat = t.quellTyp === 'privat';
@@ -166,7 +166,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
     // Buchungsblöcke mit absoluter Position innerhalb einer Tagesspalte
     const BookingBlock = ({ t, dayW }) => {
       const g = store.geraetById(t.geraetId);
-      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : store.kundeById(t.kundeId);
+      const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
       const isRes = t.quellTyp === 'reservierung';
       const isPrivat = t.quellTyp === 'privat';
       const vz = t.vonZeit || '07:00', bz = t.bisZeit || '19:00';
@@ -280,7 +280,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
       <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title="Termin" width={440}
         footer={detail && <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteTermin(detail.id); toast('Termin gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>}>
         {detail && (() => {
-          const k = detail.quellTyp === 'privat' ? { name: 'Privat (Julian)', phone: '', email: '' } : store.kundeById(detail.kundeId);
+          const k = detail.quellTyp === 'privat' ? { name: 'Privat (Julian)', phone: '', email: '' } : (store.kundeById(detail.kundeId) || { name: detail.typ === 'wartung' ? 'Wartung' : 'Belegung', phone: '', email: '' });
           const g = store.geraetById(detail.geraetId);
           return (
             <div className="stack" style={{ gap: 12 }}>

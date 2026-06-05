@@ -90,22 +90,27 @@
   // Angebote — Status: offen | angenommen | abgelaufen
   const mkA = (o, positionen) => ({ ...o, positionen, betrag: sum(positionen) });
   const ANGEBOTE = [
-    mkA({ id: 'A-2026-018', kundeId: 'k4', datum: '2026-05-28', gueltigBis: '2026-06-11', status: 'offen' }, [P.baggerW(), P.anhW(), P.transport()]),
+    mkA({ id: 'A-2026-018', kundeId: 'k4', datum: '2026-05-28', gueltigBis: '2026-06-11', status: 'offen', auftragId: 'AU-2026-010' }, [P.baggerW(), P.anhW(), P.transport()]),
     mkA({ id: 'A-2026-017', kundeId: 'k7', datum: '2026-05-25', gueltigBis: '2026-06-08', status: 'angenommen' }, [P.baggerTag(1), P.anhTag(1), P.transport()]),
     mkA({ id: 'A-2026-016', kundeId: 'k5', datum: '2026-05-10', gueltigBis: '2026-05-24', status: 'abgelaufen' }, [P.baggerTag(2), P.transport()]),
     mkA({ id: 'A-2026-019', kundeId: 'k2', datum: '2026-06-01', gueltigBis: '2026-06-15', status: 'offen' }, [P.baggerW(), P.ruetTag(2), P.transport()]),
   ];
 
-  // Termine — Woche Mo 01.06 – So 07.06.2026 (mit Uhrzeiten für Stundenbuchungen)
-  const TERMINE = [
-    { id: 't1', geraetId: 'bagger',    kundeId: 'k1', von: '2026-06-01', bis: '2026-06-01', vonZeit: '07:00', bisZeit: '17:00', ort: 'Baustelle Siegburg', quellTyp: 'buchung' },
-    { id: 't2', geraetId: 'bagger',    kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '07:00', bisZeit: '13:00', ort: 'Lohmar', quellTyp: 'buchung' },
-    { id: 't2b',geraetId: 'anhaenger', kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '14:00', bisZeit: '17:00', ort: 'Lohmar', quellTyp: 'buchung' },
-    { id: 't3', geraetId: 'anhaenger', kundeId: 'k2', von: '2026-06-03', bis: '2026-06-03', vonZeit: '08:00', bisZeit: '12:00', ort: 'Lohmar', quellTyp: 'buchung' },
-    { id: 't4', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-04', bis: '2026-06-05', vonZeit: '07:00', bisZeit: '17:00', ort: 'Troisdorf', quellTyp: 'buchung' },
-    { id: 't5', geraetId: 'ruettler',  kundeId: 'k6', von: '2026-06-05', bis: '2026-06-05', vonZeit: '13:00', bisZeit: '17:00', ort: 'Eitorf', quellTyp: 'buchung' },
-    { id: 't6', geraetId: 'bagger',    kundeId: 'k7', von: '2026-06-06', bis: '2026-06-06', vonZeit: '07:00', bisZeit: '14:00', ort: 'Köln-Sülz', quellTyp: 'buchung' },
-    { id: 't7', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-10', bis: '2026-06-11', vonZeit: '07:00', bisZeit: '17:00', ort: 'Neunkirchen-Seelscheid', quellTyp: 'reservierung', quellId: 'A-2026-018' },
+  // Aufträge — zentrale Klammer über Belegung (Kalender), Angebot und Rechnung.
+  // typ: vermietung | eigennutzung | wartung   (eigennutzung/wartung haben keinen Kunden)
+  // status: anfrage → angebot → reserviert → einsatz → abgerechnet → bezahlt → abgeschlossen
+  // quellTyp bleibt für den (noch unveränderten) Kalender erhalten und wird in Phase 2 abgelöst.
+  const AUFTRAEGE = [
+    { id: 'AU-2026-001', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k1', von: '2026-06-01', bis: '2026-06-01', vonZeit: '07:00', bisZeit: '17:00', ort: 'Baustelle Siegburg', status: 'abgeschlossen', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-006', notiz: '' },
+    { id: 'AU-2026-002', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '07:00', bisZeit: '13:00', ort: 'Lohmar', status: 'einsatz', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-009', notiz: '' },
+    { id: 'AU-2026-003', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '14:00', bisZeit: '17:00', ort: 'Lohmar', status: 'einsatz', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-004', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k2', von: '2026-06-03', bis: '2026-06-03', vonZeit: '08:00', bisZeit: '12:00', ort: 'Lohmar', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: 'R-2026-008', notiz: '' },
+    { id: 'AU-2026-005', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-04', bis: '2026-06-05', vonZeit: '07:00', bisZeit: '17:00', ort: 'Troisdorf', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-006', typ: 'eigennutzung', geraetId: 'bagger',  kundeId: null, von: '2026-06-03', bis: '2026-06-03', vonZeit: '14:00', bisZeit: '18:00', ort: 'Eigener Garten Lohmar', status: 'reserviert', quellTyp: 'privat', anfrageId: null, angebotId: null, rechnungId: null, notiz: 'Eigene Nutzung – nicht vermietbar' },
+    { id: 'AU-2026-007', typ: 'wartung', geraetId: 'ruettler',     kundeId: null, von: '2026-06-04', bis: '2026-06-04', vonZeit: '08:00', bisZeit: '12:00', ort: 'Werkstatt', status: 'reserviert', quellTyp: 'wartung', anfrageId: null, angebotId: null, rechnungId: null, notiz: 'Inspektion / Funktionsprüfung' },
+    { id: 'AU-2026-008', typ: 'vermietung', geraetId: 'ruettler',  kundeId: 'k6', von: '2026-06-05', bis: '2026-06-05', vonZeit: '13:00', bisZeit: '17:00', ort: 'Eitorf', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-009', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k7', von: '2026-06-06', bis: '2026-06-06', vonZeit: '07:00', bisZeit: '14:00', ort: 'Köln-Sülz', status: 'reserviert', quellTyp: 'buchung', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
+    { id: 'AU-2026-010', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-10', bis: '2026-06-11', vonZeit: '07:00', bisZeit: '17:00', ort: 'Neunkirchen-Seelscheid', status: 'angebot', quellTyp: 'reservierung', quellId: 'A-2026-018', anfrageId: 'anf1', angebotId: 'A-2026-018', rechnungId: null, notiz: '' },
   ];
 
   // Eingehende Kundenanfragen (Kontaktformular)
@@ -145,6 +150,25 @@
     abgelaufen:     { label: 'Abgelaufen',      cls: 'draft' },
     reservierung:   { label: 'Reserviert',      cls: 'warn' },
     buchung:        { label: 'Gebucht',         cls: 'ok' },
+    // Auftrags-Lebenszyklus
+    anfrage:        { label: 'Anfrage',         cls: 'draft' },
+    angebot:        { label: 'Angebot',         cls: 'open' },
+    reserviert:     { label: 'Reserviert',      cls: 'warn' },
+    einsatz:        { label: 'Im Einsatz',      cls: 'open' },
+    abgerechnet:    { label: 'Abgerechnet',     cls: 'open' },
+    abgeschlossen:  { label: 'Abgeschlossen',   cls: 'ok' },
+    // Auftragstypen (für Belegungen ohne Lebenszyklus)
+    vermietung:     { label: 'Vermietung',      cls: 'ok' },
+    eigennutzung:   { label: 'Eigennutzung',    cls: 'draft' },
+    wartung:        { label: 'Wartung',         cls: 'danger' },
+  };
+
+  // Lebenszyklus eines Vermietungs-Auftrags (für die Statuszeile/Stepper)
+  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'einsatz', 'abgerechnet', 'bezahlt', 'abgeschlossen'];
+  const AUFTRAG_TYP = {
+    vermietung:   { label: 'Vermietung',   farbe: '#2B6CB0' },
+    eigennutzung: { label: 'Eigennutzung', farbe: '#6B6B66' },
+    wartung:      { label: 'Wartung',      farbe: '#C05621' },
   };
 
   const APP_TODAY = '2026-06-02';          // „Heute" in der Demo
@@ -152,7 +176,7 @@
 
   // Kennzahlen dynamisch aus dem aktuellen Datenstand berechnen
   function computeMetrics(db) {
-    const R = db.rechnungen, T = db.termine;
+    const R = db.rechnungen, T = db.auftraege || db.termine || [];
     const sumStatus = (s) => R.filter((r) => r.status === s).reduce((a, r) => a + r.betrag, 0);
     const cntStatus = (s) => R.filter((r) => r.status === s).length;
     const monat = (ym) => R.filter((r) => r.datum.startsWith(ym)).reduce((a, r) => a + r.betrag, 0);
@@ -173,9 +197,10 @@
   }
 
   window.FRIESEN = {
-    COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, TERMINE, BUCHUNGEN, ANFRAGEN, STATUS,
+    COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, AUFTRAEGE, BUCHUNGEN, ANFRAGEN, STATUS,
+    AUFTRAG_FLOW, AUFTRAG_TYP,
     fmtEUR, fmtDate, kundeById, geraetById, computeMetrics, APP_TODAY, WEEK,
     // Kennzahlen für die statischen Canvas-Mockups (Dashboard-Varianten)
-    metrics: computeMetrics({ rechnungen: RECHNUNGEN, angebote: ANGEBOTE, termine: TERMINE }),
+    metrics: computeMetrics({ rechnungen: RECHNUNGEN, angebote: ANGEBOTE, auftraege: AUFTRAEGE }),
   };
 })();

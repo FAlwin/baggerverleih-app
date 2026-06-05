@@ -1,7 +1,7 @@
 /* ============================================================
    STORE — localStorage-Persistenz + Mutationen (window.useStore)
    ============================================================ */
-const DB_KEY = 'friesen_db_v2';
+const DB_KEY = 'friesen_db_v3';
 const { createContext, useContext, useState, useEffect, useCallback, useMemo } = React;
 
 function seedDB() {
@@ -15,7 +15,7 @@ function seedDB() {
     kunden: clone(F.KUNDEN),
     rechnungen: clone(F.RECHNUNGEN),
     angebote: clone(F.ANGEBOTE),
-    termine: clone(F.TERMINE),
+    auftraege: clone(F.AUFTRAEGE),
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
   };
@@ -50,12 +50,12 @@ function StoreProvider({ children }) {
 
   const sumPos = (pos) => (pos || []).reduce((a, p) => a + (p.menge || 0) * (p.preis || 0), 0);
 
-  // Doppelbuchung prüfen: gibt kollidierenden Termin zurück oder null
+  // Doppelbuchung prüfen: gibt kollidierenden Auftrag (Belegung) zurück oder null
   const findConflict = useCallback((geraetId, von, bis, exceptId) => {
-    return db.termine.find((t) =>
+    return db.auftraege.find((t) =>
       t.geraetId === geraetId && t.id !== exceptId && von <= t.bis && bis >= t.von
     ) || null;
-  }, [db.termine]);
+  }, [db.auftraege]);
 
   // ---- Mutationen ----
   const actions = useMemo(() => ({
@@ -92,12 +92,14 @@ function StoreProvider({ children }) {
           id: newId, kundeId: a.kundeId, datum: today,
           faellig: addDays(today, 14), status: 'offen',
           positionen: JSON.parse(JSON.stringify(a.positionen)),
-          betrag: a.betrag, ausAngebot: a.id,
+          betrag: a.betrag, ausAngebot: a.id, auftragId: a.auftragId || null,
         };
+        // Falls das Angebot zu einem Auftrag gehört: Rechnung verknüpfen + Status hochsetzen
         return {
           ...d,
           rechnungen: [r, ...d.rechnungen],
           angebote: d.angebote.map((x) => x.id === id ? { ...x, status: 'angenommen' } : x),
+          auftraege: d.auftraege.map((au) => au.angebotId === id ? { ...au, rechnungId: newId, status: 'abgerechnet' } : au),
         };
       });
       return newId;
@@ -113,8 +115,49 @@ function StoreProvider({ children }) {
     },
     updateKunde: (id, data) => setDb((d) => ({ ...d, kunden: d.kunden.map((k) => k.id === id ? { ...k, ...data } : k) })),
 
-    addTermin: (data) => setDb((d) => ({ ...d, termine: [...d.termine, { ...data, id: 't' + Date.now() }] })),
-    deleteTermin: (id) => setDb((d) => ({ ...d, termine: d.termine.filter((t) => t.id !== id) })),
+    // ---- Aufträge (zentrale Klammer; Belegung im Kalender) ----
+    addAuftrag: (data) => {
+      let newId;
+      setDb((d) => {
+        newId = nextId('AU', d.auftraege);
+        // Typ aus altem quellTyp ableiten, falls nicht gesetzt
+        const typ = data.typ || (data.quellTyp === 'privat' ? 'eigennutzung' : data.quellTyp === 'wartung' ? 'wartung' : 'vermietung');
+        const a = {
+          anfrageId: null, angebotId: null, rechnungId: null, notiz: '', ort: '',
+          status: typ === 'vermietung' ? 'reserviert' : 'reserviert',
+          ...data, id: newId, typ,
+          kundeId: typ === 'vermietung' ? data.kundeId : null,
+        };
+        return { ...d, auftraege: [...d.auftraege, a] };
+      });
+      return newId;
+    },
+    updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, ...patch } : a) })),
+    setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Auftrag löschen → verknüpftes Angebot und verknüpfte Rechnung mit entfernen (Kaskade)
+    deleteAuftrag: (id) => setDb((d) => {
+      const a = d.auftraege.find((x) => x.id === id);
+      if (!a) return d;
+      return {
+        ...d,
+        auftraege: d.auftraege.filter((x) => x.id !== id),
+        angebote: a.angebotId ? d.angebote.filter((x) => x.id !== a.angebotId) : d.angebote,
+        rechnungen: a.rechnungId ? d.rechnungen.filter((x) => x.id !== a.rechnungId) : d.rechnungen,
+      };
+    }),
+
+    // Rückwärtskompatibel: der Kalender/Dashboard nutzen noch addTermin/deleteTermin
+    addTermin: (data) => setDb((d) => {
+      const newId = nextId('AU', d.auftraege);
+      const typ = data.typ || (data.quellTyp === 'privat' ? 'eigennutzung' : data.quellTyp === 'wartung' ? 'wartung' : 'vermietung');
+      // Reservierung aus Angebot: Auftrag mit dem Angebot verknüpfen
+      const angebotId = data.angebotId || (data.quellTyp === 'reservierung' ? data.quellId : null) || null;
+      const status = data.status || (angebotId ? 'angebot' : 'reserviert');
+      const a = { anfrageId: null, rechnungId: null, notiz: '', ...data, id: newId, typ, angebotId, status };
+      const angebote = angebotId ? d.angebote.map((x) => x.id === angebotId ? { ...x, auftragId: newId } : x) : d.angebote;
+      return { ...d, auftraege: [...d.auftraege, a], angebote };
+    }),
+    deleteTermin: (id) => setDb((d) => ({ ...d, auftraege: d.auftraege.filter((t) => t.id !== id) })),
 
     updateGeraet: (id, patch) => setDb((d) => ({ ...d, flotte: d.flotte.map((g) => g.id === id ? { ...g, ...patch } : g) })),
     addGeraet: (data) => {
@@ -132,10 +175,15 @@ function StoreProvider({ children }) {
     setAngebotStatus: (id, status) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, status } : a) })),
     updateAngebot: (id, patch) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     addTerminFromAngebot: (angebotId, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort) => {
-      setDb((d) => ({
-        ...d,
-        termine: [...d.termine, { id: 't_angebot_' + Date.now(), geraetId, kundeId, von, bis, vonZeit: vonZeit || '08:00', bisZeit: bisZeit || '17:00', ort: ort || '', quellTyp: 'reservierung', quellId: angebotId }],
-      }));
+      setDb((d) => {
+        const newId = nextId('AU', d.auftraege);
+        const a = { id: newId, typ: 'vermietung', geraetId, kundeId, von, bis, vonZeit: vonZeit || '08:00', bisZeit: bisZeit || '17:00', ort: ort || '', status: 'angebot', quellTyp: 'reservierung', quellId: angebotId, anfrageId: null, angebotId, rechnungId: null, notiz: '' };
+        return {
+          ...d,
+          auftraege: [...d.auftraege, a],
+          angebote: d.angebote.map((x) => x.id === angebotId ? { ...x, auftragId: newId } : x),
+        };
+      });
     },
     updateBuchung: (id, patch) => setDb((d) => ({ ...d, buchungen: d.buchungen.map((b) => b.id === id ? { ...b, ...patch } : b) })),
     addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [{ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }, ...d.anfragen] })),
@@ -183,12 +231,18 @@ function StoreProvider({ children }) {
 
   const metrics = useMemo(() => F.computeMetrics(db), [db, F]);
 
+  // db-Sicht mit Legacy-Alias: db.termine === db.auftraege (bis Kalender in Phase 2 umgestellt ist)
+  const dbView = useMemo(() => ({ ...db, termine: db.auftraege }), [db]);
+
   const value = useMemo(() => ({
-    db, ...actions, metrics, today, findConflict, nextId, sumPos,
+    db: dbView, ...actions, metrics, today, findConflict, nextId, sumPos,
     kundeById: (id) => db.kunden.find((k) => k.id === id),
     geraetById: (id) => db.flotte.find((g) => g.id === id),
+    auftragById: (id) => db.auftraege.find((a) => a.id === id),
+    rechnungById: (id) => db.rechnungen.find((r) => r.id === id),
+    angebotById: (id) => db.angebote.find((a) => a.id === id),
     anfragen: db.anfragen || [],
-  }), [db, actions, metrics, today, findConflict, nextId]);
+  }), [db, dbView, actions, metrics, today, findConflict, nextId]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
