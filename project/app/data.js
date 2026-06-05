@@ -183,6 +183,19 @@
     wartung: { label: 'Wartung',          farbe: '#C05621' },
   };
 
+  // Einstellungen — ersetzen fest verdrahtete Werte (editierbar auf der Einstellungsseite)
+  const SETTINGS = {
+    zahlungszielTage: 14,       // Fälligkeit einer Rechnung ab Rechnungsdatum
+    geschaeftszeitVon: 7,       // Kalender-Wochenansicht: erste Stunde
+    geschaeftszeitBis: 19,      // Kalender-Wochenansicht: letzte Stunde
+    nummern: {                  // Nummernkreise: Präfix + Startnummer (Untergrenze)
+      rechnung: { prefix: 'R',  start: 1 },
+      angebot:  { prefix: 'A',  start: 1 },
+      auftrag:  { prefix: 'AU', start: 1 },
+      belegung: { prefix: 'BL', start: 1 },
+    },
+  };
+
   const APP_TODAY = '2026-06-02';          // „Heute" in der Demo
   const WEEK = ['2026-06-01','2026-06-02','2026-06-03','2026-06-04','2026-06-05','2026-06-06','2026-06-07'];
 
@@ -210,7 +223,7 @@
 
   window.FRIESEN = {
     COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, AUFTRAEGE, BELEGUNGEN, BUCHUNGEN, ANFRAGEN, STATUS,
-    AUFTRAG_FLOW, AUFTRAG_TYP, BELEGUNG_GRUND,
+    AUFTRAG_FLOW, AUFTRAG_TYP, BELEGUNG_GRUND, SETTINGS,
     fmtEUR, fmtDate, kundeById, geraetById, computeMetrics, APP_TODAY, WEEK,
     // Kennzahlen für die statischen Canvas-Mockups (Dashboard-Varianten)
     metrics: computeMetrics({ rechnungen: RECHNUNGEN, angebote: ANGEBOTE, auftraege: AUFTRAEGE }),

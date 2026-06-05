@@ -182,7 +182,8 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
 
   // ---- WEEK VIEW: Tage als Spalten, Stunden als Zeilen, alle Maschinen pro Zelle ----
   const WeekView = () => {
-    const H_START = 7, H_END = 19, PX_H = 52; // px pro Stunde
+    const s = store.db.settings || {};
+    const H_START = s.geschaeftszeitVon ?? 7, H_END = s.geschaeftszeitBis ?? 19, PX_H = 52; // px pro Stunde
 
     const termineAnTag = (day) => items.filter((t) => day >= t.von && day <= t.bis);
 

@@ -27,7 +27,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   } : { name: '', kontakt: '', street: '', city: '', phone: '', email: '', typ: 'Gewerbe' });
 
   const [datum, setDatum] = nS(store.today);
-  const [faellig, setFaellig] = nS(window.addDays(store.today, 14));
+  const [faellig, setFaellig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
   const [gueltigBis, setGueltig] = nS(pf?.von ? pf.von : window.addDays(store.today, 14));
   const [mietvertrag, setMV] = nS(false);
   const [mietVon, setMietVon] = nS(pf?.von || store.today);

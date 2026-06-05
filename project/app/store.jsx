@@ -19,13 +19,22 @@ function seedDB() {
     belegungen: clone(F.BELEGUNGEN),
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
+    settings: clone(F.SETTINGS),
   };
 }
 
 function loadDB() {
+  const F = window.FRIESEN;
   try {
     const raw = localStorage.getItem(DB_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const db = JSON.parse(raw);
+      // Defensiv: fehlende Felder aus den Defaults ergänzen (z. B. settings bei Alt-Ständen)
+      if (!db.belegungen) db.belegungen = [];
+      db.settings = { ...JSON.parse(JSON.stringify(F.SETTINGS)), ...(db.settings || {}) };
+      db.settings.nummern = { ...JSON.parse(JSON.stringify(F.SETTINGS.nummern)), ...(db.settings.nummern || {}) };
+      return db;
+    }
   } catch (e) { /* ignore */ }
   return seedDB();
 }
@@ -43,11 +52,14 @@ function StoreProvider({ children }) {
   const today = F.APP_TODAY;
 
   // ---- Helfer ----
-  const nextId = useCallback((prefix, list) => {
+  const nextId = useCallback((prefix, list, start = 1) => {
     const nums = list.map((x) => parseInt(String(x.id).split('-').pop(), 10)).filter((n) => !isNaN(n));
-    const n = (nums.length ? Math.max(...nums) : 0) + 1;
+    const maxN = nums.length ? Math.max(...nums) : 0;
+    const n = Math.max(maxN + 1, start || 1);
     return `${prefix}-2026-${String(n).padStart(3, '0')}`;
   }, []);
+  // Nummernkreis-Einstellung lesen (mit Fallback)
+  const kreis = (d, kind) => (d.settings && d.settings.nummern && d.settings.nummern[kind]) || { prefix: { rechnung: 'R', angebot: 'A', auftrag: 'AU', belegung: 'BL' }[kind], start: 1 };
 
   const sumPos = (pos) => (pos || []).reduce((a, p) => a + (p.menge || 0) * (p.preis || 0), 0);
 
@@ -65,7 +77,7 @@ function StoreProvider({ children }) {
     addRechnung: (data) => {
       let newId;
       setDb((d) => {
-        newId = nextId('R', d.rechnungen);
+        const kr = kreis(d, 'rechnung'); newId = nextId(kr.prefix, d.rechnungen, kr.start);
         const r = { ...data, id: newId, betrag: sumPos(data.positionen), status: data.status || 'offen' };
         return { ...d, rechnungen: [r, ...d.rechnungen] };
       });
@@ -75,7 +87,7 @@ function StoreProvider({ children }) {
     addAngebot: (data) => {
       let newId;
       setDb((d) => {
-        newId = nextId('A', d.angebote);
+        const kr = kreis(d, 'angebot'); newId = nextId(kr.prefix, d.angebote, kr.start);
         const a = { ...data, id: newId, betrag: sumPos(data.positionen), status: data.status || 'offen' };
         return { ...d, angebote: [a, ...d.angebote] };
       });
@@ -87,10 +99,10 @@ function StoreProvider({ children }) {
       setDb((d) => {
         const a = d.angebote.find((x) => x.id === id);
         if (!a) return d;
-        newId = nextId('R', d.rechnungen);
+        const kr = kreis(d, 'rechnung'); newId = nextId(kr.prefix, d.rechnungen, kr.start);
         const r = {
           id: newId, kundeId: a.kundeId, datum: today,
-          faellig: addDays(today, 14), status: 'offen',
+          faellig: addDays(today, (d.settings && d.settings.zahlungszielTage) || 14), status: 'offen',
           positionen: JSON.parse(JSON.stringify(a.positionen)),
           betrag: a.betrag, ausAngebot: a.id, auftragId: a.auftragId || null,
         };
@@ -120,7 +132,7 @@ function StoreProvider({ children }) {
     addAuftrag: (data) => {
       let newId;
       setDb((d) => {
-        newId = nextId('AU', d.auftraege);
+        const kr = kreis(d, 'auftrag'); newId = nextId(kr.prefix, d.auftraege, kr.start);
         const a = {
           typ: 'vermietung', anfrageId: null, angebotId: null, rechnungId: null,
           notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'reserviert',
@@ -158,7 +170,7 @@ function StoreProvider({ children }) {
     addBelegung: (data) => {
       let newId;
       setDb((d) => {
-        newId = nextId('BL', d.belegungen || []);
+        const kr = kreis(d, 'belegung'); newId = nextId(kr.prefix, d.belegungen || [], kr.start);
         const b = { grund: 'privat', notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', ...data, id: newId };
         return { ...d, belegungen: [...(d.belegungen || []), b] };
       });
@@ -169,7 +181,7 @@ function StoreProvider({ children }) {
 
     // Legacy-Wrapper: Angebot-Versand legt für Standalone-Angebote eine reservierende Vermietung an
     addTermin: (data) => setDb((d) => {
-      const newId = nextId('AU', d.auftraege);
+      const kr = kreis(d, 'auftrag'); const newId = nextId(kr.prefix, d.auftraege, kr.start);
       const angebotId = data.angebotId || (data.quellTyp === 'reservierung' ? data.quellId : null) || null;
       const status = data.status || (angebotId ? 'angebot' : 'reserviert');
       const a = { typ: 'vermietung', anfrageId: null, rechnungId: null, notiz: '', ...data, id: newId, angebotId, status };
@@ -195,7 +207,7 @@ function StoreProvider({ children }) {
     updateAngebot: (id, patch) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     addTerminFromAngebot: (angebotId, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort) => {
       setDb((d) => {
-        const newId = nextId('AU', d.auftraege);
+        const kr = kreis(d, 'auftrag'); const newId = nextId(kr.prefix, d.auftraege, kr.start);
         const a = { id: newId, typ: 'vermietung', geraetId, kundeId, von, bis, vonZeit: vonZeit || '08:00', bisZeit: bisZeit || '17:00', ort: ort || '', status: 'angebot', quellTyp: 'reservierung', quellId: angebotId, anfrageId: null, angebotId, rechnungId: null, notiz: '' };
         return {
           ...d,
@@ -210,6 +222,10 @@ function StoreProvider({ children }) {
     deleteAnfrage: (id) => setDb((d) => ({ ...d, anfragen: d.anfragen.filter((a) => a.id !== id) })),
     addBuchung: (data) => setDb((d) => ({ ...d, buchungen: [{ ...data, id: 'b' + Date.now() }, ...d.buchungen] })),
     deleteBuchung: (id) => setDb((d) => ({ ...d, buchungen: d.buchungen.filter((b) => b.id !== id) })),
+
+    // ---- Einstellungen ----
+    updateCompany: (patch) => setDb((d) => ({ ...d, company: { ...d.company, ...patch } })),
+    updateSettings: (patch) => setDb((d) => ({ ...d, settings: { ...d.settings, ...patch } })),
 
     resetDemo: () => { localStorage.removeItem(DB_KEY); setDb(seedDB()); },
 

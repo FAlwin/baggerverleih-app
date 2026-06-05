@@ -9,6 +9,7 @@ const NAV = [
   { id: 'kunden',      icon: 'kunden',      label: 'Kunden' },
   { id: 'flotte',      icon: 'flotte',      label: 'Flotte' },
   { id: 'buchhaltung', icon: 'buchhaltung', label: 'Buchhaltung' },
+  { id: 'einstellungen', icon: 'settings',  label: 'Einstellungen' },
 ];
 
 // Farbiges Buchstaben-Badge pro Gerät (ersetzt abstrakte Icons)

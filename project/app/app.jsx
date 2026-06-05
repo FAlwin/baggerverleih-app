@@ -26,6 +26,7 @@ const MEHR_ITEMS = [
   { id: 'kunden',      icon: 'kunden',      label: 'Kunden' },
   { id: 'flotte',      icon: 'flotte',      label: 'Flotte' },
   { id: 'buchhaltung', icon: 'buchhaltung', label: 'Buchhaltung' },
+  { id: 'einstellungen', icon: 'settings',  label: 'Einstellungen' },
 ];
 const MEHR_IDS = new Set(MEHR_ITEMS.map((x) => x.id));
 
@@ -203,7 +204,7 @@ function Layout() {
   const [search, setSearch] = uS(false);
   const toast = window.UI.useToast();
 
-  const TOP_SCREENS = new Set(['dashboard','anfragen','auftraege','kalender','rechnungen','angebote','kunden','flotte','buchhaltung']);
+  const TOP_SCREENS = new Set(['dashboard','anfragen','auftraege','kalender','rechnungen','angebote','kunden','flotte','buchhaltung','einstellungen']);
 
   const nav = useCallback((screen, params = {}) => {
     setRoute((prev) => {
