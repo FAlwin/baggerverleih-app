@@ -167,7 +167,7 @@ window.Screens.buchhaltung = function Buchhaltung({ mobile, onMenu, PageHeader }
                     <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: b.art === 'e' ? 'var(--ok)' : 'var(--danger)' }} /><span style={{ fontWeight: 600 }}>{b.kategorie}</span></div><div className="show-sm" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{b.text}</div></td>
                     <td className="hide-sm" style={{ color: 'var(--muted)' }}>{b.text}</td>
                     <td className="num" style={{ textAlign: 'right', fontWeight: 600, color: b.art === 'e' ? 'var(--ok)' : 'var(--danger)' }}>{b.art === 'e' ? '+' : '−'}{F.fmtEUR(b.betrag)}</td>
-                    <td onClick={(e)=>e.stopPropagation()}><div className="row-actions"><window.UI.IconBtn name="edit" size={15} title="Bearbeiten" style={{ width: 30, height: 30 }} onClick={() => setEditB({...b})} /><window.UI.IconBtn name="trash" size={15} title="Löschen" style={{ width: 30, height: 30 }} onClick={() => { store.deleteBuchung(b.id); toast('Buchung gelöscht'); }} /></div></td>
+                    <td onClick={(e)=>e.stopPropagation()}><div className="row-actions"><window.UI.IconBtn name="edit" size={15} title="Bearbeiten" style={{ width: 30, height: 30 }} onClick={() => setEditB({...b})} /><window.UI.IconBtn name="trash" size={15} title="Löschen" style={{ width: 30, height: 30 }} onClick={() => { const snap = store.snapshot(); store.deleteBuchung(b.id); toast('Buchung gelöscht', { undo: () => store.restoreSnapshot(snap) }); }} /></div></td>
                   </tr>
                 ))}
               </tbody>

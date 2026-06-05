@@ -15,16 +15,46 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
   const [filter, setFilter] = anfS('alle');
   const [detail, setDetail] = anfS(null);
   const [neuOpen, setNeuOpen] = anfS(false);
-  const LEER_ANF = { name: '', phone: '', email: '', geraetId: 'bagger', von: '', bis: '', ort: '', nachricht: '' };
+  const LEER_ANF = { name: '', phone: '', email: '', geraetId: 'bagger', von: '', vonZeit: '08:00', dauer: 1, einheit: 'Tage', bis: '', ort: '', nachricht: '' };
   const [neuForm, setNeuForm] = anfS(LEER_ANF);
 
   const saveNeu = () => {
     if (!neuForm.name.trim()) { alert('Bitte einen Namen angeben.'); return; }
-    store.addAnfrage({ ...neuForm, name: neuForm.name.trim() });
+    const ende = window.berechneEnde(neuForm.von, neuForm.vonZeit, neuForm.dauer, neuForm.einheit);
+    store.addAnfrage({ ...neuForm, name: neuForm.name.trim(), bis: neuForm.von ? ende.bis : '', bisZeit: ende.bisZeit });
     toast('Anfrage gespeichert');
     setNeuForm(LEER_ANF);
     setNeuOpen(false);
   };
+
+  // Kunde zu einer Anfrage finden
+  const matchKunde = (a) => store.db.kunden.find((k) =>
+    (a.phone && k.phone && k.phone.replace(/\s/g, '') === a.phone.replace(/\s/g, '')) ||
+    (a.email && k.email && k.email.toLowerCase() === a.email.toLowerCase()) ||
+    (a.name && k.name.toLowerCase() === a.name.toLowerCase())
+  );
+
+  // Anfrage annehmen → Auftrag anlegen und in den Auftrag springen
+  const annehmen = (anf) => {
+    const match = matchKunde(anf);
+    const akr = (store.db.settings && store.db.settings.nummern && store.db.settings.nummern.auftrag) || { prefix: 'AU', start: 1 };
+    const auftragId = store.nextId(akr.prefix, store.db.auftraege, akr.start);
+    let neuerKunde = null, kundeId = match ? match.id : '';
+    if (!match) {
+      const kid = 'k' + (Math.max(0, ...store.db.kunden.map((k) => parseInt(k.id.slice(1), 10) || 0)) + 1);
+      neuerKunde = { id: kid, name: anf.name, kontakt: '', street: '', city: anf.ort || '', phone: anf.phone || '', email: anf.email || '', typ: 'Privat' };
+      kundeId = kid;
+    }
+    store.annehmenAnfrage({
+      anfrageId: anf.id, auftragId, kundeId: match ? match.id : undefined, neuerKunde,
+      auftrag: { kundeId, geraetId: anf.geraetId || '', von: anf.von || store.today, bis: anf.bis || anf.von || store.today, vonZeit: anf.vonZeit || '08:00', bisZeit: anf.bisZeit || '17:00', ort: anf.ort || '', notiz: anf.nachricht || '' },
+    });
+    toast('Auftrag ' + auftragId + ' angelegt');
+    setDetail(null);
+    nav('auftrag', { id: auftragId });
+  };
+
+  const loeschenAnf = (id) => { const snap = store.snapshot(); store.deleteAnfrage(id); toast('Anfrage gelöscht', { undo: () => store.restoreSnapshot(snap) }); };
 
   const all = store.anfragen || [];
   const rows = all
@@ -35,20 +65,6 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
     neu: all.filter((a) => a.status === 'neu').length,
     'in-bearbeitung': all.filter((a) => a.status === 'in-bearbeitung').length,
     erledigt: all.filter((a) => a.status === 'erledigt').length,
-  };
-
-  const createAngebot = (a) => {
-    const match = store.db.kunden.find((k) =>
-      (a.phone && k.phone && k.phone.replace(/\s/g, '') === a.phone.replace(/\s/g, '')) ||
-      (a.email && k.email && k.email.toLowerCase() === a.email.toLowerCase()) ||
-      (a.name && k.name.toLowerCase() === a.name.toLowerCase())
-    );
-    store.setAnfrageStatus(a.id, 'in-bearbeitung');
-    nav('rechnung-neu', {
-      mode: 'angebot', kundeId: match?.id || '', anfrageId: a.id,
-      prefill: { name: a.name, phone: a.phone, email: a.email, geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort, nachricht: a.nachricht },
-    });
-    setDetail(null);
   };
 
   // ---- Filter-Tab-Bar (horizontal scrollbar on mobile) ----
@@ -94,10 +110,9 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
               {a.ort && <span>📍 {a.ort}</span>}
             </div>
           )}
-          {a.status === 'neu' && (
+          {a.status !== 'erledigt' && (
             <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
-              <window.UI.Btn size="sm" icon="angebot" onClick={(e) => { e.stopPropagation(); createAngebot(a); }}>Angebot</window.UI.Btn>
-              <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={(e) => { e.stopPropagation(); store.setAnfrageStatus(a.id, 'erledigt'); toast('Erledigt'); }}>Erledigt</window.UI.Btn>
+              <window.UI.Btn size="sm" icon="check" onClick={(e) => { e.stopPropagation(); annehmen(a); }}>Auftrag annehmen</window.UI.Btn>
             </div>
           )}
         </div>
@@ -157,9 +172,8 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
                         <td><window.Pill status={a.status === 'in-bearbeitung' ? 'ueberfaellig' : a.status === 'neu' ? 'offen' : 'bezahlt'} label={st.label} /></td>
                         <td onClick={(e) => e.stopPropagation()}>
                           <div className="row-actions" style={{ opacity: 1 }}>
-                            {a.status !== 'erledigt' && <window.UI.Btn size="sm" icon="angebot" onClick={() => createAngebot(a)}>Angebot</window.UI.Btn>}
-                            {a.status !== 'erledigt' && <window.UI.IconBtn name="check" size={15} title="Erledigt" style={{ width: 32, height: 32 }} onClick={() => { store.setAnfrageStatus(a.id, 'erledigt'); toast('Als erledigt markiert'); }} />}
-                            <window.UI.IconBtn name="trash" size={15} title="Löschen" style={{ width: 32, height: 32 }} onClick={() => { store.deleteAnfrage(a.id); toast('Anfrage gelöscht'); }} />
+                            {a.status !== 'erledigt' && <window.UI.Btn size="sm" icon="check" onClick={() => annehmen(a)}>Annehmen</window.UI.Btn>}
+                            <window.UI.IconBtn name="trash" size={15} title="Löschen" style={{ width: 32, height: 32 }} onClick={() => loeschenAnf(a.id)} />
                           </div>
                         </td>
                       </tr>
@@ -186,10 +200,8 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
               {store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport').map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </window.UI.Select>
           </window.UI.Field>
-          <div className="form-2">
-            <window.UI.Field label="Von (Datum)"><window.UI.Input type="date" value={neuForm.von} onChange={(e) => setNeuForm({ ...neuForm, von: e.target.value })} /></window.UI.Field>
-            <window.UI.Field label="Bis (Datum)"><window.UI.Input type="date" value={neuForm.bis} onChange={(e) => setNeuForm({ ...neuForm, bis: e.target.value })} /></window.UI.Field>
-          </div>
+          <window.UI.ZeitraumPicker F={F} von={neuForm.von} vonZeit={neuForm.vonZeit} menge={neuForm.dauer} einheit={neuForm.einheit} withTime={neuForm.einheit === 'Stunden'}
+            onChange={(v) => setNeuForm({ ...neuForm, von: v.von, vonZeit: v.vonZeit, dauer: v.menge, einheit: v.einheit })} />
           <window.UI.Field label="Einsatzort"><window.UI.Input value={neuForm.ort} onChange={(e) => setNeuForm({ ...neuForm, ort: e.target.value })} placeholder="z. B. Baustelle Siegburg" /></window.UI.Field>
           <window.UI.Field label="Nachricht / Notiz">
             <window.UI.Textarea value={neuForm.nachricht} onChange={(e) => setNeuForm({ ...neuForm, nachricht: e.target.value })} placeholder="Was ist geplant?" rows={3} />
@@ -200,8 +212,8 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
       {/* Detail-Modal */}
       <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title="Anfrage" width={480}
         footer={detail && <>
-          {detail.status !== 'erledigt' && <window.UI.Btn icon="angebot" onClick={() => createAngebot(detail)}>Angebot erstellen</window.UI.Btn>}
-          {detail.status !== 'erledigt' && <window.UI.Btn variant="okghost" icon="check" onClick={() => { store.setAnfrageStatus(detail.id, 'erledigt'); toast('Erledigt'); setDetail(null); }}>Erledigt</window.UI.Btn>}
+          {detail.status !== 'erledigt' && <window.UI.Btn variant="ghost" icon="trash" onClick={() => { loeschenAnf(detail.id); setDetail(null); }}>Ablehnen</window.UI.Btn>}
+          {detail.status !== 'erledigt' && <window.UI.Btn icon="check" onClick={() => annehmen(detail)}>Auftrag annehmen</window.UI.Btn>}
           <window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn>
         </>}>
         {detail && (() => {

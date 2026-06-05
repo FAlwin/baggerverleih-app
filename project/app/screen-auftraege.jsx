@@ -213,7 +213,7 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
     if (st === 'versendet') return {
       primary: { label: 'Kunde hat angenommen', icon: 'check', hint: 'Bucht den Auftrag fest (reserviert). Rechnung folgt später.',
         action: () => { store.angebotAnnehmen(id); toast('Auftrag gebucht'); } },
-      secondary: { label: 'Angebot abgelehnt', danger: true, action: () => { if (confirm(`Angebot abgelehnt – Auftrag ${id} samt Angebot löschen?`)) { store.deleteAuftrag(id); toast('Auftrag gelöscht'); nav('auftraege'); } } },
+      secondary: { label: 'Angebot abgelehnt', danger: true, action: () => { if (confirm(`Angebot abgelehnt – Auftrag ${id} samt Angebot löschen?`)) { const snap = store.snapshot(); store.deleteAuftrag(id); toast('Auftrag gelöscht', { undo: () => store.restoreSnapshot(snap) }); nav('auftraege'); } } },
     };
     // Angebot erstellt, aber noch nicht versendet
     return {
@@ -250,6 +250,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const [versendOpen, setVersendOpen] = auS(false);
   const [editOpen, setEditOpen] = auS(false);
   const [mvOpen, setMvOpen] = auS(false);
+  const [previewKind, setPreviewKind] = auS(null);
   const a = store.auftragById(params.id);
 
   if (!a) return <><PageHeader title="Auftrag" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
@@ -277,8 +278,9 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
     if (rechnung) teile.push('Rechnung ' + rechnung.id);
     const zusatz = teile.length ? `\n\nMit gelöscht werden: ${teile.join(', ')}.` : '';
     if (confirm(`Auftrag ${a.id} wirklich löschen?${zusatz}`)) {
+      const snap = store.snapshot();
       store.deleteAuftrag(a.id);
-      toast('Auftrag gelöscht');
+      toast('Auftrag gelöscht', { undo: () => store.restoreSnapshot(snap) });
       nav('auftraege');
     }
   };
@@ -356,7 +358,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
           <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
 
             {/* Angebot */}
-            <BelegKachel icon="angebot" title="Angebot"
+            <BelegKachel icon="angebot" title="Angebot" onTitle={angebot ? () => setPreviewKind('angebot') : null}
               status={angebot ? <window.Pill status={angebotPill[angebotStatus] || 'draft'} label={angebotLabel[angebotStatus] || angebotStatus} /> : null}>
               {angebot ? (
                 <>
@@ -365,7 +367,6 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                     {(angebotStatus === 'offen' || angebotStatus === 'versendet') &&
                       <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendOpen(true)}>{angebotStatus === 'versendet' ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
                     <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Verlängern</window.UI.Btn>
-                    <window.UI.Btn size="sm" variant="ghost" icon="print" onClick={() => nav('angebote', { openId: angebot.id })}>Ansehen</window.UI.Btn>
                   </div>
                 </>
               ) : (
@@ -376,22 +377,30 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               )}
             </BelegKachel>
 
-            {/* Mietvertrag */}
-            <BelegKachel icon="file" title="Mietvertrag">
-              <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Für die Übergabe – unterschreiben & drucken.</div>
-              <div>
-                <window.UI.Btn size="sm" icon="print" onClick={() => setMvOpen(true)} disabled={!k}>Öffnen / Drucken</window.UI.Btn>
-              </div>
-            </BelegKachel>
+            {/* Mietvertrag – erst möglich, wenn Angebot oder Rechnung vorhanden */}
+            {(() => {
+              const mvReady = !!(angebot || rechnung) && !!k;
+              return (
+                <BelegKachel icon="file" title="Mietvertrag" locked={!mvReady} onTitle={mvReady ? () => setMvOpen(true) : null}>
+                  {mvReady ? (
+                    <>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Für die Übergabe – unterschreiben & drucken.</div>
+                      <div><window.UI.Btn size="sm" icon="print" onClick={() => setMvOpen(true)}>Öffnen / Drucken</window.UI.Btn></div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Erst ein Angebot oder eine Rechnung anlegen.</div>
+                  )}
+                </BelegKachel>
+              );
+            })()}
 
             {/* Rechnung */}
-            <BelegKachel icon="rechnung" title="Rechnung"
+            <BelegKachel icon="rechnung" title="Rechnung" onTitle={rechnung ? () => setPreviewKind('rechnung') : null}
               status={rechnung ? <window.Pill status={rechnung.status} /> : null}>
               {rechnung ? (
                 <>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{rechnung.id} · {F.fmtEUR(rechnung.betrag)} · fällig {F.fmtDate(rechnung.faellig)}</div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                    <window.UI.Btn size="sm" variant="ghost" icon="print" onClick={() => nav('rechnung', { id: rechnung.id })}>Ansehen</window.UI.Btn>
                     {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert'); }}>Als bezahlt</window.UI.Btn>}
                     {(rechnung.status === 'offen' || rechnung.status === 'ueberfaellig') && <window.UI.Btn size="sm" variant="ghost" icon="alert" onClick={() => { store.setStatus(rechnung.id, 'mahnung'); toast('Mahnung erstellt'); }}>Mahnung</window.UI.Btn>}
                   </div>
@@ -407,7 +416,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
             {/* Kalender */}
             <BelegKachel icon="kalender" title="Kalender">
               <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Belegung im Terminkalender.</div>
-              <div><window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => nav('kalender')}>Im Kalender zeigen</window.UI.Btn></div>
+              <div><window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => nav('kalender', { highlight: a.id, ym: (a.von || '').slice(0, 7) })}>Im Kalender zeigen</window.UI.Btn></div>
             </BelegKachel>
 
           </div>
@@ -431,9 +440,47 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
           onClose={() => setEditOpen(false)} />
       )}
       {mvOpen && <MietvertragModal auftrag={a} store={store} onClose={() => setMvOpen(false)} />}
+      {previewKind && <DocPreviewModal kind={previewKind} auftrag={a} store={store}
+        onEdit={previewKind === 'angebot' ? () => { setPreviewKind(null); setEditOpen(true); } : null}
+        onClose={() => setPreviewKind(null)} />}
     </>
   );
 };
+
+// ---- Dokument-Vorschau (A4, in-place) für Angebot/Rechnung ----
+function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
+  const F = window.FRIESEN;
+  const [ref, scale] = window.useFitScale(793);
+  const k = store.kundeById(auftrag.kundeId);
+  const c = store.db.company;
+  let doc, title;
+  if (kind === 'angebot') {
+    const ang = store.angebotById(auftrag.angebotId);
+    if (!ang) return null;
+    doc = <window.Print.AngebotDoc angebot={ang} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
+    title = 'Angebot ' + ang.id;
+  } else {
+    const r = store.rechnungById(auftrag.rechnungId);
+    if (!r) return null;
+    doc = <window.Print.RechnungDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
+    title = 'Rechnung ' + r.id;
+  }
+  return (
+    <window.UI.Modal open title={title} onClose={onClose} width={700}
+      footer={<>
+        {onEdit && <window.UI.Btn variant="ghost" icon="edit" onClick={onEdit}>Bearbeiten</window.UI.Btn>}
+        <window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>
+        <window.UI.Btn icon="print" onClick={() => setTimeout(() => window.print(), 60)}>Drucken / PDF</window.UI.Btn>
+      </>}>
+      <div ref={ref} style={{ background: 'var(--paper-3)', borderRadius: 'var(--r)', padding: 16, display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
+        <div style={{ width: 793 * scale, height: 1122 * scale, flex: '0 0 auto' }}>
+          <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: 793, boxShadow: 'var(--shadow-lg)' }}>{doc}</div>
+        </div>
+      </div>
+      <window.Print.Mount doc={doc} />
+    </window.UI.Modal>
+  );
+}
 
 // ---- Mietvertrag-Modal (erstklassiger Beleg des Auftrags – schnell bei der Übergabe) ----
 function MietvertragModal({ auftrag, store, onClose }) {
@@ -472,12 +519,20 @@ function MietvertragModal({ auftrag, store, onClose }) {
   );
 }
 
-// Beleg-Kachel
-function BelegKachel({ icon, title, status, children }) {
+// Beleg-Kachel – Überschrift ist Button, wenn onTitle gesetzt (öffnet Vorschau)
+function BelegKachel({ icon, title, status, onTitle, locked, children }) {
+  const head = (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14, color: locked ? 'var(--muted-2)' : 'var(--ink)' }}>
+      <Icon name={icon} size={17} color="var(--muted)" /> {title}
+      {onTitle && <Icon name="arrowRight" size={14} color="var(--muted-2)" />}
+    </span>
+  );
   return (
-    <div style={{ background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, opacity: locked ? 0.7 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14 }}><Icon name={icon} size={17} color="var(--muted)" /> {title}</div>
+        {onTitle
+          ? <button onClick={onTitle} title="Vorschau öffnen" style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>{head}</button>
+          : head}
         {status}
       </div>
       {children}

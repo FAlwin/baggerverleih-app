@@ -248,6 +248,16 @@ function StoreProvider({ children }) {
     },
     updateBuchung: (id, patch) => setDb((d) => ({ ...d, buchungen: d.buchungen.map((b) => b.id === id ? { ...b, ...patch } : b) })),
     addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [{ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }, ...d.anfragen] })),
+    // Anfrage annehmen → schlanken Auftrag (Status 'anfrage') anlegen, Kunde ggf. neu, Anfrage erledigt.
+    // IDs werden vom Aufrufer vorab via store.nextId berechnet; alles atomar in EINEM Update.
+    annehmenAnfrage: ({ anfrageId, auftragId, kundeId, neuerKunde, auftrag }) => {
+      setDb((d) => {
+        let kunden = d.kunden, kId = kundeId;
+        if (neuerKunde) { kId = neuerKunde.id; kunden = [...d.kunden, neuerKunde]; }
+        const a = { typ: 'vermietung', anfrageId, angebotId: null, rechnungId: null, notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'anfrage', ...auftrag, id: auftragId, kundeId: kId };
+        return { ...d, kunden, auftraege: [...d.auftraege, a], anfragen: d.anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x) };
+      });
+    },
     setAnfrageStatus: (id, status) => setDb((d) => ({ ...d, anfragen: d.anfragen.map((a) => a.id === id ? { ...a, status } : a) })),
     deleteAnfrage: (id) => setDb((d) => ({ ...d, anfragen: d.anfragen.filter((a) => a.id !== id) })),
     addBuchung: (data) => setDb((d) => ({ ...d, buchungen: [{ ...data, id: 'b' + Date.now() }, ...d.buchungen] })),
@@ -256,6 +266,9 @@ function StoreProvider({ children }) {
     // ---- Einstellungen ----
     updateCompany: (patch) => setDb((d) => ({ ...d, company: { ...d.company, ...patch } })),
     updateSettings: (patch) => setDb((d) => ({ ...d, settings: { ...d.settings, ...patch } })),
+
+    // ---- Undo: kompletten Zustand wiederherstellen (Snapshot vor destruktiver Aktion) ----
+    restoreSnapshot: (snap) => { if (snap) { const { termine, ...rest } = snap; setDb(rest); } },
 
     resetDemo: () => { localStorage.removeItem(DB_KEY); setDb(seedDB()); },
 
@@ -301,6 +314,7 @@ function StoreProvider({ children }) {
 
   const value = useMemo(() => ({
     db: dbView, ...actions, metrics, today, findConflict, nextId, sumPos,
+    snapshot: () => JSON.parse(JSON.stringify(db)),
     kundeById: (id) => db.kunden.find((k) => k.id === id),
     geraetById: (id) => db.flotte.find((g) => g.id === id),
     auftragById: (id) => db.auftraege.find((a) => a.id === id),
@@ -322,6 +336,34 @@ function addDays(iso, n) {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
 }
 
+// Enddatum/-zeit aus Start + Dauer berechnen.
+// einheit 'Tage'  → bis = Start + menge Tage (z. B. 01.06. + 3 = 04.06.)
+// einheit 'Stunden' → gleiche bzw. überrollende Tage; bisZeit = vonZeit + menge Stunden (z. B. 08:00 + 2 = 10:00)
+function berechneEnde(von, vonZeit, menge, einheit) {
+  const n = Math.max(0, Number(menge) || 0);
+  if (!von) return { bis: von, bisZeit: vonZeit || '17:00' };
+  if (einheit === 'Stunden') {
+    const [h, m] = (vonZeit || '08:00').split(':').map(Number);
+    const total = h * 60 + m + n * 60;
+    const extraDays = Math.floor(total / (24 * 60));
+    const rest = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+    const p = (x) => String(x).padStart(2, '0');
+    return { bis: addDays(von, extraDays), bisZeit: `${p(Math.floor(rest / 60))}:${p(rest % 60)}` };
+  }
+  return { bis: addDays(von, n), bisZeit: '17:00' };
+}
+
+// Anzahl Tage zwischen zwei Daten (für Vorbelegung aus Anfrage)
+function tageZwischen(von, bis) {
+  if (!von || !bis) return 1;
+  const [y1, m1, d1] = von.split('-').map(Number);
+  const [y2, m2, d2] = bis.split('-').map(Number);
+  const diff = Math.round((new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / 86400000);
+  return Math.max(1, diff);
+}
+
 window.StoreProvider = StoreProvider;
 window.useStore = useStore;
 window.addDays = addDays;
+window.berechneEnde = berechneEnde;
+window.tageZwischen = tageZwischen;

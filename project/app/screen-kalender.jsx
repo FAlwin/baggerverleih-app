@@ -45,6 +45,8 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
   const [modal, setModal] = cvS(null);
   const [conflict, setConflict] = cvS(null);
   const [detail, setDetail] = cvS(null);
+  const [highlight, setHighlight] = cvS(params.highlight || null);
+  const hlRing = (id) => id && id === highlight ? { boxShadow: '0 0 0 3px var(--warn)', position: 'relative', zIndex: 6 } : null;
 
   // Month helpers
   const [ym, setym] = cvS(isoYM(store.today));
@@ -68,11 +70,13 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
   const weekDays = cvM(() => Array.from({ length: 7 }, (_, i) => window.addDays(weekStart, i)), [weekStart]);
   const timeLabels = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
 
-  // Einheitliche Belegungsliste: Aufträge (Vermietung) + Belegungen (Privat/Wartung)
+  // Einheitliche Belegungsliste: Aufträge + Belegungen + offene Anfragen (vorgemerkt)
   const items = cvM(() => [
     ...store.db.auftraege.map((a) => ({ ...a, kind: 'auftrag' })),
     ...(store.db.belegungen || []).map((b) => ({ ...b, kind: 'belegung' })),
-  ], [store.db.auftraege, store.db.belegungen]);
+    ...(store.anfragen || []).filter((a) => a.von && (a.status === 'neu' || a.status === 'in-bearbeitung'))
+      .map((a) => ({ ...a, bis: a.bis || a.von, kind: 'anfrage' })),
+  ], [store.db.auftraege, store.db.belegungen, store.anfragen]);
 
   const itemsForDay = (gid, day) => items.filter((t) => t.geraetId === gid && day >= t.von && day <= t.bis);
   const itemsForMonth = (day) => day ? items.filter((t) => day >= t.von && day <= t.bis) : [];
@@ -80,6 +84,9 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
   // Anzeige-Eigenschaften (Name, Farbe, gestrichelt) für ein Kalender-Item
   const disp = (t) => {
     const g = store.geraetById(t.geraetId);
+    if (t.kind === 'anfrage') {
+      return { g, name: t.name || 'Anfrage', bg: 'var(--paper)', col: 'var(--ink)', dashed: true, anfrage: true, kindLabel: 'Anfrage' };
+    }
     if (t.kind === 'belegung') {
       const gr = F.BELEGUNG_GRUND[t.grund] || { label: t.grund, farbe: '#6B6B66' };
       const isW = t.grund === 'wartung';
@@ -117,6 +124,20 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
   // Aus „Aufträge → Neuer Auftrag → Direkt buchen" kommend: Buchungs-Dialog automatisch öffnen
   React.useEffect(() => {
     if (params && params.neu === 'auftrag') openAdd(machines[0]?.id, store.today, null, 'vermietung');
+    // eslint-disable-next-line
+  }, []);
+
+  // „Im Kalender zeigen": auf den richtigen Monat springen und Eintrag kurz hervorheben
+  React.useEffect(() => {
+    if (params && params.highlight) {
+      const au = store.auftragById(params.highlight);
+      const m = params.ym || (au && isoYM(au.von)) || isoYM(store.today);
+      setym(m);
+      if (au) setFocus(au.von);
+      setView(mobile ? 'agenda' : 'month');
+      const tmo = setTimeout(() => setHighlight(null), 4500);
+      return () => clearTimeout(tmo);
+    }
     // eslint-disable-next-line
   }, []);
 
@@ -172,7 +193,7 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
                       const d = disp(t);
                       if (!d.g) return null;
                       return (
-                        <span key={t.id} onClick={(e) => { e.stopPropagation(); setDetail(t); }} title="Details öffnen" style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 5px', borderRadius: 2, background: d.bg, color: d.col, border: d.dashed ? '1px dashed var(--warn)' : t.kind === 'belegung' ? '1px solid var(--line-2)' : 'none', display: 'flex', alignItems: 'center', gap: 3, maxWidth: '100%', overflow: 'hidden', cursor: 'pointer' }}>
+                        <span key={t.id} onClick={(e) => { e.stopPropagation(); setDetail(t); }} title="Details öffnen" style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 5px', borderRadius: 2, background: d.bg, color: d.col, border: d.anfrage ? '1px dashed #2B6CB0' : d.dashed ? '1px dashed var(--warn)' : t.kind === 'belegung' ? '1px solid var(--line-2)' : 'none', display: 'flex', alignItems: 'center', gap: 3, maxWidth: '100%', overflow: 'hidden', cursor: 'pointer', ...hlRing(t.id) }}>
                           <span style={{ flexShrink: 0 }}>{d.g.kuerzel}</span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, opacity: 0.85, fontSize: 8.5 }}>{d.name?.split(' ')[0]}</span>
                         </span>
@@ -205,13 +226,14 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
       const [bh, bm] = bz.split(':').map(Number);
       const top = (vh - H_START + vm / 60) * PX_H;
       const height = Math.max(22, ((bh - vh) + (bm - vm) / 60) * PX_H - 2);
-      const bg = d.dashed ? 'rgba(217,119,43,.12)' : d.bg;
+      const accent = d.anfrage ? '#2B6CB0' : 'var(--warn)';
+      const bg = d.anfrage ? 'rgba(43,108,176,.10)' : d.dashed ? 'rgba(217,119,43,.12)' : d.bg;
       return (
         <button onClick={(e) => { e.stopPropagation(); setDetail(t); }}
           style={{ position: 'absolute', left: 2, right: 2, top, height,
-            background: bg, border: d.dashed ? '1.5px dashed var(--warn)' : '1.5px solid rgba(0,0,0,.12)',
-            borderLeft: `3px solid ${isBel ? 'var(--muted-2)' : d.dashed ? 'var(--warn)' : 'rgba(0,0,0,.3)'}`,
-            borderRadius: 3, padding: '2px 5px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: d.col, overflow: 'hidden', zIndex: 2 }}>
+            background: bg, border: d.dashed ? `1.5px dashed ${accent}` : '1.5px solid rgba(0,0,0,.12)',
+            borderLeft: `3px solid ${isBel ? 'var(--muted-2)' : d.dashed ? accent : 'rgba(0,0,0,.3)'}`,
+            borderRadius: 3, padding: '2px 5px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: d.col, overflow: 'hidden', zIndex: 2, ...hlRing(t.id) }}>
           {d.g && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <window.GeraetBadge geraet={d.g} size={14} />
             <span style={{ fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>{d.g.kuerzel}</span>
@@ -316,7 +338,7 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
                     : ts.map((t) => {
                         const d = disp(t);
                         return (
-                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', background: d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.dashed ? '1.5px dashed var(--warn)' : 'none', borderRadius: 4, cursor: 'pointer', font: 'inherit', color: d.col, textAlign: 'left' }}>
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', background: d.anfrage ? 'rgba(43,108,176,.10)' : d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.anfrage ? '1.5px dashed #2B6CB0' : d.dashed ? '1.5px dashed var(--warn)' : 'none', borderRadius: 4, cursor: 'pointer', font: 'inherit', color: d.col, textAlign: 'left', ...hlRing(t.id) }}>
                             {d.g && <window.GeraetBadge geraet={d.g} size={20} />}
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
@@ -379,7 +401,7 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
                       {ts.map((t) => {
                         const d = disp(t);
                         return (
-                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'block', width: '100%', padding: '3px 5px', background: d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.dashed ? '1px dashed var(--warn)' : 'none', borderRadius: 3, color: d.col, cursor: 'pointer', font: 'inherit', textAlign: 'left', marginBottom: 2 }}>
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'block', width: '100%', padding: '3px 5px', background: d.anfrage ? 'rgba(43,108,176,.10)' : d.dashed ? 'var(--yellow-wash)' : d.bg, border: d.anfrage ? '1px dashed #2B6CB0' : d.dashed ? '1px dashed var(--warn)' : 'none', borderRadius: 3, color: d.col, cursor: 'pointer', font: 'inherit', textAlign: 'left', marginBottom: 2, ...hlRing(t.id) }}>
                             <div style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name?.split(' ').slice(-1)[0]}</div>
                             {t.vonZeit && <div style={{ fontSize: 9.5, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</div>}
                           </button>
@@ -425,18 +447,37 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
         <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--yellow)', borderLeft: '3px solid var(--ink)', borderRadius: 2 }} /> Vermietung (gebucht)</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, border: '2px dashed var(--warn)', borderRadius: 2, borderLeft: '3px solid var(--warn)' }} /> Reservierung (offenes Angebot)</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, border: '2px dashed #2B6CB0', borderRadius: 2, borderLeft: '3px solid #2B6CB0' }} /> Anfrage (vorgemerkt)</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--paper-3)', borderLeft: '3px solid var(--muted-2)', borderRadius: 2 }} /> Privat / Wartung</span>
           <span>Monat/Agenda: Eintrag anklicken → Details · Woche: Zeitslot anklicken → buchen</span>
         </div>
       </div>
 
       {/* Detail */}
-      <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title={detail && detail.kind === 'belegung' ? 'Belegung' : 'Auftrag'} width={440}
+      <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title={detail && detail.kind === 'belegung' ? 'Belegung' : detail && detail.kind === 'anfrage' ? 'Anfrage (vorgemerkt)' : 'Auftrag'} width={440}
         footer={detail && (detail.kind === 'belegung'
-          ? <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteBelegung(detail.id); toast('Belegung gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" icon="edit" onClick={() => { const b = detail; setDetail(null); openEditBelegung(b); }}>Bearbeiten</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>
+          ? <><window.UI.Btn variant="danger" icon="trash" onClick={() => { const snap = store.snapshot(); store.deleteBelegung(detail.id); toast('Belegung gelöscht', { undo: () => store.restoreSnapshot(snap) }); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" icon="edit" onClick={() => { const b = detail; setDetail(null); openEditBelegung(b); }}>Bearbeiten</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>
+          : detail.kind === 'anfrage'
+          ? <><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn><window.UI.Btn icon="arrowRight" onClick={() => { setDetail(null); nav('anfragen'); }}>Zu den Anfragen</window.UI.Btn></>
           : <><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn><window.UI.Btn icon="arrowRight" onClick={() => { const id = detail.id; setDetail(null); nav('auftrag', { id }); }}>Auftrag öffnen</window.UI.Btn></>)}>
         {detail && (() => {
           const g = store.geraetById(detail.geraetId);
+          if (detail.kind === 'anfrage') {
+            return (
+              <div className="stack" style={{ gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {g && <window.GeraetBadge geraet={g} size={40} />}
+                  <div><div style={{ fontWeight: 700 }}>{detail.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.name || 'Wunschgerät'}</div></div>
+                </div>
+                <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 7, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                  <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Wunsch-Zeitraum:</b> {F.fmtDate(detail.von)}{detail.bis && detail.bis !== detail.von ? ' – ' + F.fmtDate(detail.bis) : ''}</div>
+                  {detail.ort && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Ort:</b> {detail.ort}</div>}
+                  {(detail.phone || detail.email) && <div style={{ color: 'var(--muted)' }}>{detail.phone} {detail.email ? '· ' + detail.email : ''}</div>}
+                  <div style={{ padding: '8px 11px', background: 'rgba(43,108,176,.10)', borderRadius: 'var(--r)', fontSize: 12.5, color: '#2B6CB0', fontWeight: 600 }}>Vorgemerkt – noch kein Auftrag. In „Anfragen" annehmen.</div>
+                </div>
+              </div>
+            );
+          }
           if (detail.kind === 'belegung') {
             const gr = F.BELEGUNG_GRUND[detail.grund] || { label: detail.grund };
             return (

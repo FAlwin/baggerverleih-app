@@ -1,6 +1,6 @@
 /* ============ SCREEN: Neue Rechnung / Neues Angebot (params.mode) ============ */
 window.Screens = window.Screens || {};
-const { useState: nS, useMemo: nM, useRef: nR } = React;
+const { useState: nS, useMemo: nM, useRef: nR, useEffect: nE } = React;
 
 window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
@@ -33,8 +33,9 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const [mietVon, setMietVon] = nS(pf?.von || store.today);
   const [mietBis, setMietBis] = nS(pf?.bis || window.addDays(store.today, 1));
 
-  // Positionen — aus Anfrage vorausfüllen
+  // Positionen — aus Anfrage vorausfüllen (im Angebot übernimmt das die Tagespreis-Automatik)
   const initPos = () => {
+    if (mode === 'angebot') return [];
     if (!pf?.geraetId) return [];
     const g = store.db.flotte.find((x) => x.id === pf.geraetId);
     if (!g || !g.tarif?.length) return [];
@@ -43,11 +44,30 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   };
   const [pos, setPos] = nS(initPos);
 
-  // Angebot-Metadaten aus Anfrage
+  // Angebot-Metadaten aus Anfrage — Zeitraum als Start + Dauer (Ende berechnet)
   const [angebotVon, setAngebotVon] = nS(pf?.von || '');
-  const [angebotBis, setAngebotBis] = nS(pf?.bis || '');
+  const [angebotVonZeit, setAngebotVonZeit] = nS(pf?.vonZeit || '08:00');
+  const [dauer, setDauer] = nS(pf?.von && pf?.bis ? window.tageZwischen(pf.von, pf.bis) : 1);
+  const [dauerEinheit, setDauerEinheit] = nS('Tage');
+  const angebotEnde = window.berechneEnde(angebotVon, angebotVonZeit, dauer, dauerEinheit);
+  const angebotBis = angebotEnde.bis;
   const [angebotGeraetId, setAngebotGeraetId] = nS(pf?.geraetId || '');
   const [angebotOrt, setAngebotOrt] = nS(pf?.ort || '');
+
+  // Kalender-Abgleich: ist der gewünschte Zeitraum für das Gerät frei?
+  const konflikt = (isAngebot && angebotGeraetId && angebotVon)
+    ? store.findConflict(angebotGeraetId, angebotVon, angebotBis, params.auftragId) : null;
+  const freierVorschlag = nM(() => {
+    if (!konflikt) return null;
+    let von = angebotVon, c = konflikt, i = 0;
+    while (c && i < 120) {
+      von = window.addDays(c.bis, 1);
+      const e = window.berechneEnde(von, angebotVonZeit, dauer, dauerEinheit);
+      c = store.findConflict(angebotGeraetId, von, e.bis, params.auftragId);
+      i++;
+    }
+    return c ? null : { von };
+  }, [konflikt, angebotGeraetId, angebotVon, angebotVonZeit, dauer, dauerEinheit]);
 
   // Position-Picker state
   const [pickerGeraet, setPickerGeraet] = nS('');
@@ -72,14 +92,27 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     setPos((arr) => [...arr, { text: p.geraet, einheit: p.einheit, menge: 1, preis: p.preis }]);
   };
   const addFree = () => setPos((arr) => [...arr, { text: '', einheit: 'Tag', menge: 1, preis: 0 }]);
-  const updatePos = (i, patch) => setPos((arr) => arr.map((p, j) => j === i ? { ...p, ...patch } : p));
+  const updatePos = (i, patch) => setPos((arr) => arr.map((p, j) => j === i ? { ...p, ...patch, auto: false } : p));
+
+  // Tagespreis × Dauer: im Angebot automatisch eine Position aus Gerät + Dauer (Tage) vorbefüllen.
+  // Manuell bearbeitete Positionen (auto:false) bleiben erhalten.
+  nE(() => {
+    if (!isAngebot) return;
+    const g = store.db.flotte.find((x) => x.id === angebotGeraetId);
+    const t = g && g.tarif && (g.tarif.find((r) => r.einheit === 'Tag') || g.tarif.find((r) => r.preis > 0));
+    setPos((arr) => {
+      const rest = arr.filter((p) => !p.auto);
+      if (!g || !t || dauerEinheit !== 'Tage') return rest;
+      return [{ text: g.name, einheit: 'Tag', menge: Math.max(1, Number(dauer) || 1), preis: t.preis, auto: true }, ...rest];
+    });
+  }, [angebotGeraetId, dauer, dauerEinheit, isAngebot]);
   const removePos = (i) => setPos((arr) => arr.filter((_, j) => j !== i));
   const total = pos.reduce((a, p) => a + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
 
   const kundeObj = neuerKunde ? { ...nk, id: '__neu' } : store.kundeById(kundeId);
   const draft = {
     id: '(Entwurf)', kundeId: kundeObj?.id || '', datum, faellig,
-    positionen: pos.length ? pos.map((p) => ({ ...p, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })) : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
+    positionen: pos.length ? pos.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })) : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
     status: 'offen',
   };
   const canSave = kundeObj && (neuerKunde ? nk.name && nk.city : kundeId) && pos.length > 0 && total > 0;
@@ -120,7 +153,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     ? <window.Print.MietvertragDoc rechnung={{ ...draft, id: 'MV (Entwurf)' }} kunde={kundeObj} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={`${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}`} />
     : <window.Print.RechnungDoc rechnung={draft} kunde={kundeObj || { name: 'Kunde wählen …', street: '', city: '', typ: '' }} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
 
-  const kicker = isAngebot ? <span style={{ cursor: 'pointer' }} onClick={() => nav('angebote')}>‹ Angebote</span> : <span style={{ cursor: 'pointer' }} onClick={() => nav('rechnungen')}>‹ Rechnungen</span>;
+  const kicker = isAngebot ? 'Neues Angebot' : 'Neue Rechnung';
 
   return (
     <>
@@ -235,16 +268,32 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             {isAngebot && (
               <div className="stack" style={{ gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
                 <div className="kicker" style={{ color: 'var(--muted)' }}>Wunsch-Zeitraum (für Kalender-Reservierung)</div>
-                <div className="form-2">
-                  <window.UI.Field label="Von"><window.UI.Input type="date" value={angebotVon} onChange={(e) => setAngebotVon(e.target.value)} /></window.UI.Field>
-                  <window.UI.Field label="Bis"><window.UI.Input type="date" value={angebotBis} onChange={(e) => setAngebotBis(e.target.value)} /></window.UI.Field>
-                </div>
+                <window.UI.ZeitraumPicker F={F} von={angebotVon} vonZeit={angebotVonZeit} menge={dauer} einheit={dauerEinheit} withTime={dauerEinheit === 'Stunden'}
+                  onChange={(v) => { setAngebotVon(v.von); setAngebotVonZeit(v.vonZeit); setDauer(v.menge); setDauerEinheit(v.einheit); }} />
                 <window.UI.Field label="Gerät (für Kalender)">
                   <window.UI.Select value={angebotGeraetId} onChange={(e) => setAngebotGeraetId(e.target.value)}>
                     <option value="">— kein Gerät zugeordnet —</option>
                     {store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport').map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </window.UI.Select>
                 </window.UI.Field>
+                {/* Kalender-Abgleich */}
+                {angebotGeraetId && angebotVon && (
+                  konflikt ? (
+                    <div style={{ padding: '11px 13px', background: 'var(--danger-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--danger)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                        <Icon name="alert" size={15} color="var(--danger)" style={{ flex: '0 0 auto', marginTop: 1 }} />
+                        <span>Zeitraum ist belegt ({konflikt.id ? konflikt.id : 'anderer Eintrag'}, {F.fmtDate(konflikt.von)}–{F.fmtDate(konflikt.bis)}).</span>
+                      </div>
+                      {freierVorschlag && (
+                        <window.UI.Btn size="sm" variant="ghost" icon="kalender" onClick={() => setAngebotVon(freierVorschlag.von)}>Nächster freier Start: {F.fmtDate(freierVorschlag.von)}</window.UI.Btn>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '9px 13px', background: 'var(--ok-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--ok)', display: 'flex', gap: 7, alignItems: 'center' }}>
+                      <Icon name="check" size={15} color="var(--ok)" /> Zeitraum ist frei.
+                    </div>
+                  )
+                )}
                 <window.UI.Field label="Einsatzort"><window.UI.Input value={angebotOrt} onChange={(e) => setAngebotOrt(e.target.value)} placeholder="z. B. Baustelle Siegburg" /></window.UI.Field>
               </div>
             )}

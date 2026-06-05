@@ -44,6 +44,11 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
     ...store.db.angebote.filter((a) => a.status === 'offen' && a.gueltigBis < store.today).map((a) => ({ ic: 'angebot', c: 'var(--open)', t: 'Angebot abgelaufen', s: `${a.id} · gültig bis ${F.fmtDate(a.gueltigBis)}`, go: ['angebote'] })),
   ].slice(0, 4);
 
+  // Rückgabe-Erinnerung: laufende Vermietungen, die heute oder in den nächsten Tagen zurückkommen
+  const rueckgaben = store.db.auftraege
+    .filter((a) => ['reserviert', 'abgerechnet'].includes(a.status) && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
+    .sort((a, b) => a.bis.localeCompare(b.bis));
+
   // Jeder Start legt einen Auftrag an – der Auftrag ist die Schaltzentrale.
   const NEU_ITEMS = [
     { icon: 'angebot',  label: 'Mit Angebot starten', sub: 'Angebot schreiben – legt einen Auftrag an', go: ['rechnung-neu', { mode: 'angebot' }] },
@@ -145,6 +150,30 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
 
         {/* Right column */}
         <div className="stack" style={{ gap: 18, minHeight: 0 }}>
+          {rueckgaben.length > 0 && (
+            <window.UI.Card style={{ padding: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+                <Icon name="clock" size={18} color="var(--warn)" />
+                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rückgaben · heute & bald</h2>
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
+                {rueckgaben.map((a) => {
+                  const g = store.geraetById(a.geraetId);
+                  const heute = a.bis === store.today;
+                  return (
+                    <button key={a.id} onClick={() => nav('auftrag', { id: a.id })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--warn-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                      {g && <window.GeraetBadge geraet={g} size={26} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{store.kundeById(a.kundeId)?.name || ''}</div>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--warn)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute zurück' : F.fmtDate(a.bis)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </window.UI.Card>
+          )}
           <window.UI.Card style={{ padding: 18 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>Rechnungsstatus</h2>            <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--line)' }}>
               {segs.map((s) => sums[s.key] > 0 && <div key={s.key} style={{ width: (sums[s.key] / total * 100) + '%', background: window.STATUS_COLOR[s.cls].fg }} />)}

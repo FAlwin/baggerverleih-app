@@ -103,8 +103,8 @@ function PageHeader({ kicker, title, children, mobile }) {
   return (
     <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: mobile ? '11px 14px' : '18px 28px', background: 'var(--paper)', borderBottom: '1.5px solid var(--line)', position: 'sticky', top: 0, zIndex: 30 }}>
       {goBack && (
-        <button onClick={goBack} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, flex: '0 0 36px', border: '1.5px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper-2)', cursor: 'pointer', color: 'var(--ink)' }} title="Zurück">
-          <Icon name="chevron" size={18} style={{ transform: 'scaleX(-1)' }} />
+        <button onClick={goBack} style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center', height: 36, padding: mobile ? '0 10px 0 8px' : '0 13px 0 10px', flex: '0 0 auto', border: '1.5px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper-2)', cursor: 'pointer', color: 'var(--ink)', font: 'inherit', fontSize: 13.5, fontWeight: 600 }} title="Zurück">
+          <Icon name="chevron" size={17} style={{ transform: 'scaleX(-1)' }} /> Zurück
         </button>
       )}
       <div style={{ flex: '1 1 0%', minWidth: 0, overflow: 'hidden' }}>
@@ -261,6 +261,10 @@ function Layout() {
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
+
+  // Zurück-Button synchron beim Render bereitstellen (nicht erst im Effect) –
+  // sonst sieht PageHeader beim ersten Render einen veralteten Wert und der Button fehlt mal.
+  window.__goBack = history.length > 0 ? goBack : null;
 
   const Screen = (window.Screens && window.Screens[route.screen]) || (() => <div style={{ padding: 40 }}>Unbekannt</div>);
   const activeNav = ({ rechnung: 'rechnungen', 'rechnung-neu': 'rechnungen', kunde: 'kunden', anfragen: 'anfragen', auftrag: 'auftraege' }[route.screen]) || route.screen;

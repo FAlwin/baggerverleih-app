@@ -107,24 +107,37 @@ UI.Empty = function Empty({ icon = 'file', title, sub, action }) {
   );
 };
 
-// Toast
+// Toast — optionale Undo-Aktion: toast('… gelöscht', { undo: () => … })
 const ToastCtx = createCtx(null);
 UI.ToastProvider = function ToastProvider({ children }) {
   const [toasts, setToasts] = uiState([]);
-  const push = uiCb((msg, kind = 'ok') => {
+  const remove = uiCb((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const push = uiCb((msg, opts) => {
+    const o = typeof opts === 'string' ? { kind: opts } : (opts || {});
+    const undo = typeof o.undo === 'function' ? o.undo : null;
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, msg, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    const kind = o.kind || (undo ? 'undo' : 'ok');
+    setToasts((t) => [...t, { id, msg, kind, undo, label: o.label || 'Rückgängig' }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), undo ? 6000 : 3200);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-        {toasts.map((t) => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--ink)', color: '#fff', borderRadius: 'var(--r)', boxShadow: 'var(--shadow-lg)', fontSize: 14, fontWeight: 500, borderLeft: '3px solid ' + (t.kind === 'ok' ? 'var(--yellow)' : 'var(--danger)') }}>
-            <Icon name={t.kind === 'ok' ? 'check' : 'alert'} size={18} color={t.kind === 'ok' ? 'var(--yellow)' : 'var(--danger)'} />{t.msg}
-          </div>
-        ))}
+      <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}>
+        {toasts.map((t) => {
+          const accent = t.kind === 'err' ? 'var(--danger)' : 'var(--yellow)';
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: t.undo ? '10px 10px 10px 18px' : '12px 18px', background: 'var(--ink)', color: '#fff', borderRadius: 'var(--r)', boxShadow: 'var(--shadow-lg)', fontSize: 14, fontWeight: 500, borderLeft: '3px solid ' + accent }}>
+              <Icon name={t.kind === 'err' ? 'alert' : t.undo ? 'trash' : 'check'} size={18} color={accent} />
+              <span>{t.msg}</span>
+              {t.undo && (
+                <button onClick={() => { t.undo(); remove(t.id); }} style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--yellow)', color: 'var(--ink)', border: 'none', borderRadius: 'var(--r)', font: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  <Icon name="undo" size={15} /> {t.label}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </ToastCtx.Provider>
   );
@@ -224,6 +237,36 @@ UI.Stepper = function Stepper({ flow, current }) {
         })}
       </div>
       <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginTop: 6 }}>{activeLabel}</div>
+    </div>
+  );
+};
+
+// ---- Zeitraum-Picker: Start + Dauer (Std./Tage) → Ende wird berechnet ----
+UI.ZeitraumPicker = function ZeitraumPicker({ von, vonZeit, menge, einheit, withTime, onChange, F }) {
+  const fmtDate = (F && F.fmtDate) || ((x) => x);
+  const ende = window.berechneEnde(von, vonZeit, menge, einheit);
+  const set = (patch) => onChange({ von, vonZeit, menge, einheit, ...patch });
+  const endText = !von ? '—' : (einheit === 'Stunden'
+    ? `${fmtDate(ende.bis)} um ${ende.bisZeit} Uhr`
+    : fmtDate(ende.bis));
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: withTime ? '1fr 96px' : '1fr', gap: 8 }}>
+        <UI.Field label="Start (Datum)"><UI.Input type="date" value={von || ''} onChange={(e) => set({ von: e.target.value })} /></UI.Field>
+        {withTime && <UI.Field label="ab Uhr"><UI.Input type="time" value={vonZeit || '08:00'} onChange={(e) => set({ vonZeit: e.target.value })} /></UI.Field>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'end' }}>
+        <UI.Field label="Dauer"><UI.Input type="number" min="1" value={menge} onChange={(e) => set({ menge: e.target.value })} /></UI.Field>
+        <UI.Field label="Einheit">
+          <UI.Select value={einheit} onChange={(e) => set({ einheit: e.target.value })}>
+            <option value="Tage">Tage</option>
+            <option value="Stunden">Stunden</option>
+          </UI.Select>
+        </UI.Field>
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="clock" size={14} color="var(--muted)" /> Ende: <b style={{ color: 'var(--ink)' }}>{endText}</b>
+      </div>
     </div>
   );
 };
