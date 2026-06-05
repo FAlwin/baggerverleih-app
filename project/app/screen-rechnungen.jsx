@@ -122,7 +122,7 @@ window.Screens.rechnungen = function Rechnungen({ nav, params, mobile, onMenu, P
                       <td><window.Pill status={r.status} /></td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions">
-                          <window.UI.IconBtn name="arrowRight" size={16} title="Öffnen" style={{ width: 32, height: 32 }} onClick={() => nav('rechnung', { id: r.id })} />
+                          <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => r.auftragId ? nav('auftrag', { id: r.auftragId }) : nav('rechnung', { id: r.id })}>Auftrag öffnen</window.UI.Btn>
                         </div>
                       </td>
                     </tr>
@@ -152,7 +152,7 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
   return (
     <>
       <PageHeader kicker="Rechnung" title={r.id} mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn variant="ghost" icon="print" onClick={() => setTimeout(() => window.print(), 60)}>{mobile ? '' : 'Drucken / PDF'}</window.UI.Btn>
+        <window.UI.Btn variant="ghost" icon="download" onClick={() => window.PDF.download(doc, 'Rechnung_' + r.id)}>{mobile ? '' : 'PDF herunterladen'}</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '320px 1fr', gap: 20, alignItems: 'start' }}>
@@ -171,8 +171,8 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
               {r.ausAngebot && <div>aus Angebot: <b style={{ color: 'var(--ink)' }}>{r.ausAngebot}</b></div>}
             </div>
             <div className="stack" style={{ gap: 9, marginTop: 14 }}>
-              <window.UI.Btn icon="print" onClick={() => setTimeout(() => window.print(), 60)} style={{ width: '100%' }}>Drucken / PDF</window.UI.Btn>
-              {r.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => nav('auftrag', { id: r.auftragId })} style={{ width: '100%' }}>Zum Auftrag öffnen</window.UI.Btn>}
+              <window.UI.Btn icon="download" onClick={() => window.PDF.download(doc, 'Rechnung_' + r.id)} style={{ width: '100%' }}>PDF herunterladen</window.UI.Btn>
+              {r.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => nav('auftrag', { id: r.auftragId })} style={{ width: '100%' }}>Auftrag öffnen</window.UI.Btn>}
             </div>
             <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--muted-2)', lineHeight: 1.5 }}>
               Bezahlt-Status, Mahnung und Mietvertrag verwaltest du im zugehörigen Auftrag.

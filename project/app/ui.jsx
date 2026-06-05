@@ -115,10 +115,12 @@ UI.ToastProvider = function ToastProvider({ children }) {
   const push = uiCb((msg, opts) => {
     const o = typeof opts === 'string' ? { kind: opts } : (opts || {});
     const undo = typeof o.undo === 'function' ? o.undo : null;
+    const action = typeof o.action === 'function' ? o.action : null;
     const id = Date.now() + Math.random();
     const kind = o.kind || (undo ? 'undo' : 'ok');
-    setToasts((t) => [...t, { id, msg, kind, undo, label: o.label || 'Rückgängig' }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), undo ? 6000 : 3200);
+    const dur = undo ? 10000 : (action ? 8000 : 3200);
+    setToasts((t) => [...t, { id, msg, kind, undo, action, label: o.label || (undo ? 'Rückgängig' : 'Öffnen'), dur }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), dur);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
@@ -126,14 +128,23 @@ UI.ToastProvider = function ToastProvider({ children }) {
       <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}>
         {toasts.map((t) => {
           const accent = t.kind === 'err' ? 'var(--danger)' : 'var(--yellow)';
+          const hasBtn = t.undo || t.action;
           return (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: t.undo ? '10px 10px 10px 18px' : '12px 18px', background: 'var(--ink)', color: '#fff', borderRadius: 'var(--r)', boxShadow: 'var(--shadow-lg)', fontSize: 14, fontWeight: 500, borderLeft: '3px solid ' + accent }}>
+            <div key={t.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, padding: hasBtn ? '10px 10px 12px 18px' : '12px 18px', background: 'var(--ink)', color: '#fff', borderRadius: 'var(--r)', boxShadow: 'var(--shadow-lg)', fontSize: 14, fontWeight: 500, borderLeft: '3px solid ' + accent, overflow: 'hidden' }}>
               <Icon name={t.kind === 'err' ? 'alert' : t.undo ? 'trash' : 'check'} size={18} color={accent} />
               <span>{t.msg}</span>
               {t.undo && (
                 <button onClick={() => { t.undo(); remove(t.id); }} style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--yellow)', color: 'var(--ink)', border: 'none', borderRadius: 'var(--r)', font: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   <Icon name="undo" size={15} /> {t.label}
                 </button>
+              )}
+              {!t.undo && t.action && (
+                <button onClick={() => { t.action(); remove(t.id); }} style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--yellow)', color: 'var(--ink)', border: 'none', borderRadius: 'var(--r)', font: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  {t.label} <Icon name="arrowRight" size={15} />
+                </button>
+              )}
+              {hasBtn && (
+                <span style={{ position: 'absolute', left: 0, bottom: 0, height: 3, background: accent, width: '100%', transformOrigin: 'left', animation: `toastbar ${t.dur}ms linear forwards` }} />
               )}
             </div>
           );
@@ -144,72 +155,70 @@ UI.ToastProvider = function ToastProvider({ children }) {
 };
 UI.useToast = function useToast() { return useCtx(ToastCtx); };
 
-// ---- Unterschriften-Pad ----
+// ---- Unterschriften-Pad (Vollbild, auf dem Handy im Querformat) ----
 UI.SignaturPad = function SignaturPad({ title, onSave, onClose }) {
   const canvasRef = React.useRef(null);
+  const wrapRef = React.useRef(null);
   const drawing = React.useRef(false);
+  const dirty = React.useRef(false);
+  const isMob = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
+
+  // Canvas an die tatsächliche Pixelgröße anpassen (scharfe Linien)
+  React.useEffect(() => {
+    const fit = () => {
+      const canvas = canvasRef.current, wrap = wrapRef.current;
+      if (!canvas || !wrap) return;
+      const r = wrap.getBoundingClientRect();
+      canvas.width = Math.max(100, Math.round(r.width));
+      canvas.height = Math.max(100, Math.round(r.height));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    window.addEventListener('orientationchange', fit);
+    // Vollbild + Querformat anfordern (Android Chrome; auf iOS still ignoriert)
+    if (isMob) {
+      const el = wrapRef.current && wrapRef.current.parentNode;
+      const rq = el && (el.requestFullscreen || el.webkitRequestFullscreen);
+      if (rq) { try { rq.call(el).then(() => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); } catch (e) {} }).catch(() => {}); } catch (e) {} }
+    }
+    return () => {
+      window.removeEventListener('resize', fit);
+      window.removeEventListener('orientationchange', fit);
+      try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+      try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+    };
+  }, []);
 
   const getPos = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
     const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+    return { x: (src.clientX - rect.left) * (canvas.width / rect.width), y: (src.clientY - rect.top) * (canvas.height / rect.height) };
   };
-
-  const start = (e) => {
-    e.preventDefault();
-    drawing.current = true;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const { x, y } = getPos(e, canvas);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const move = (e) => {
-    e.preventDefault();
-    if (!drawing.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#141414';
-    const { x, y } = getPos(e, canvas);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
+  const start = (e) => { e.preventDefault(); drawing.current = true; const c = canvasRef.current, ctx = c.getContext('2d'); const { x, y } = getPos(e, c); ctx.beginPath(); ctx.moveTo(x, y); };
+  const move = (e) => { e.preventDefault(); if (!drawing.current) return; const c = canvasRef.current, ctx = c.getContext('2d'); ctx.lineWidth = 2.8; ctx.lineCap = 'round'; ctx.strokeStyle = '#141414'; const { x, y } = getPos(e, c); ctx.lineTo(x, y); ctx.stroke(); dirty.current = true; };
   const stop = () => { drawing.current = false; };
-
-  const clear = () => {
-    const canvas = canvasRef.current;
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-  };
-
-  const save = () => {
-    const canvas = canvasRef.current;
-    onSave(canvas.toDataURL('image/png'));
-  };
+  const clear = () => { const c = canvasRef.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); dirty.current = false; };
+  const save = () => { if (!dirty.current) { alert('Bitte zuerst unterschreiben.'); return; } onSave(canvasRef.current.toDataURL('image/png')); };
 
   return (
-    <UI.Modal open title={title || 'Unterschrift'} onClose={onClose} width={480}
-      footer={<>
-        <UI.Btn variant="ghost" onClick={clear}>Löschen</UI.Btn>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'var(--ink)', display: 'flex', flexDirection: 'column', padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', color: '#fff', flex: '0 0 auto' }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{title || 'Unterschrift'}</div>
+        {isMob && <div style={{ fontSize: 11.5, color: 'var(--on-dark-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="alert" size={14} color="var(--yellow)" /> Gerät bitte quer halten</div>}
+      </div>
+      <div ref={wrapRef} style={{ flex: 1, margin: '0 16px', borderRadius: 'var(--r)', background: '#fff', position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+        <canvas ref={canvasRef}
+          style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: 'crosshair' }}
+          onMouseDown={start} onMouseMove={move} onMouseUp={stop} onMouseLeave={stop}
+          onTouchStart={start} onTouchMove={move} onTouchEnd={stop} />
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 14, textAlign: 'center', fontSize: 11.5, color: 'var(--muted-2)', pointerEvents: 'none' }}>Hier unterschreiben (Finger oder Maus)</div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 16px', flex: '0 0 auto' }}>
+        <UI.Btn variant="soft" onClick={clear}>Löschen</UI.Btn>
         <UI.Btn variant="ghost" onClick={onClose}>Abbrechen</UI.Btn>
         <UI.Btn icon="check" onClick={save}>Übernehmen</UI.Btn>
-      </>}>
-      <div className="stack" style={{ gap: 10 }}>
-        <div style={{ padding: '8px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12.5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <Icon name="alert" size={15} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
-          <span><b>Vorbereitung Backend:</b> Die Unterschrift wird lokal gespeichert und erscheint im Mietvertrag. Automatischer E-Mail-Versand erfordert ein Backend.</span>
-        </div>
-        <canvas ref={canvasRef} width={440} height={160}
-          style={{ border: '1.5px solid var(--line)', borderRadius: 'var(--r)', background: '#fff', touchAction: 'none', cursor: 'crosshair', width: '100%' }}
-          onMouseDown={start} onMouseMove={move} onMouseUp={stop} onMouseLeave={stop}
-          onTouchStart={start} onTouchMove={move} onTouchEnd={stop}
-        />
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'center' }}>Hier unterschreiben (Maus oder Finger)</div>
       </div>
-    </UI.Modal>
+    </div>
   );
 };
 
@@ -267,6 +276,11 @@ UI.ZeitraumPicker = function ZeitraumPicker({ von, vonZeit, menge, einheit, with
       <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <Icon name="clock" size={14} color="var(--muted)" /> Ende: <b style={{ color: 'var(--ink)' }}>{endText}</b>
       </div>
+      {von && window.istMiettag && !window.istMiettag(von) && (
+        <div style={{ fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="alert" size={14} color="var(--danger)" /> Startdatum fällt auf einen Tag, an dem nicht vermietet wird.
+        </div>
+      )}
     </div>
   );
 };

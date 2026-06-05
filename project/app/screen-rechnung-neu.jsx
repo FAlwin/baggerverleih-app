@@ -28,7 +28,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
 
   const [datum, setDatum] = nS(store.today);
   const [faellig, setFaellig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
-  const [gueltigBis, setGueltig] = nS(pf?.von ? pf.von : window.addDays(store.today, 14));
+  const [gueltigBis, setGueltig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.angebotGueltigTage) || 14));
   const [mietvertrag, setMV] = nS(false);
   const [mietVon, setMietVon] = nS(pf?.von || store.today);
   const [mietBis, setMietBis] = nS(pf?.bis || window.addDays(store.today, 1));
@@ -115,7 +115,10 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     positionen: pos.length ? pos.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })) : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
     status: 'offen',
   };
-  const canSave = kundeObj && (neuerKunde ? nk.name && nk.city : kundeId) && pos.length > 0 && total > 0;
+  const kundeOk = kundeObj && (neuerKunde ? nk.name && nk.city : kundeId);
+  // Angebot braucht zusätzlich Gerät + Startdatum (für die Kalender-Reservierung)
+  const angebotPflicht = !isAngebot || (angebotGeraetId && angebotVon);
+  const canSave = kundeOk && pos.length > 0 && total > 0 && angebotPflicht;
 
   const persistKunde = () => {
     if (neuerKunde) { return store.addKunde(nk); }
@@ -123,6 +126,10 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   };
 
   const save = () => {
+    if (isAngebot) {
+      if (konflikt && !confirm(`Der Zeitraum ist belegt (${konflikt.id || 'anderer Eintrag'}). Angebot trotzdem anlegen?`)) return;
+      if (angebotVon && window.istMiettag && !window.istMiettag(angebotVon) && !confirm('Das Startdatum fällt auf einen Tag, an dem nicht vermietet wird. Trotzdem fortfahren?')) return;
+    }
     const kId = persistKunde();
     // Jeder Beleg gehört zu einem Auftrag. Ohne Kontext legen wir einen schlanken Auftrag an –
     // die Auftrags-ID berechnen wir vorab (zuverlässig), Anlegen + Verknüpfen passiert atomar.

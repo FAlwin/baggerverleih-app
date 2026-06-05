@@ -21,8 +21,7 @@ const BOTTOM_TABS = [
   { id: '_mehr',      icon: 'grid',      label: 'Mehr' },
 ];
 const MEHR_ITEMS = [
-  { id: 'rechnungen',  icon: 'rechnung',    label: 'Rechnungen' },
-  { id: 'angebote',    icon: 'angebot',     label: 'Angebote' },
+  { id: 'belege',      icon: 'rechnung',    label: 'Belege' },
   { id: 'kunden',      icon: 'kunden',      label: 'Kunden' },
   { id: 'flotte',      icon: 'flotte',      label: 'Flotte' },
   { id: 'buchhaltung', icon: 'buchhaltung', label: 'Buchhaltung' },
@@ -204,9 +203,12 @@ function Layout() {
   const [search, setSearch] = uS(false);
   const toast = window.UI.useToast();
 
-  const TOP_SCREENS = new Set(['dashboard','anfragen','auftraege','kalender','rechnungen','angebote','kunden','flotte','buchhaltung','einstellungen']);
+  const TOP_SCREENS = new Set(['dashboard','anfragen','auftraege','kalender','belege','rechnungen','angebote','kunden','flotte','buchhaltung','einstellungen']);
 
   const nav = useCallback((screen, params = {}) => {
+    // Rechnungen/Angebote sind unter „Belege" zusammengefasst → automatisch dorthin leiten
+    if (screen === 'rechnungen') { screen = 'belege'; params = { ...params, tab: 'rechnungen' }; }
+    else if (screen === 'angebote') { screen = 'belege'; params = { ...params, tab: 'angebote' }; }
     setRoute((prev) => {
       if (TOP_SCREENS.has(screen)) {
         setHistory([]); // Hauptseite → History leeren, kein Zurück-Button
@@ -267,7 +269,7 @@ function Layout() {
   window.__goBack = history.length > 0 ? goBack : null;
 
   const Screen = (window.Screens && window.Screens[route.screen]) || (() => <div style={{ padding: 40 }}>Unbekannt</div>);
-  const activeNav = ({ rechnung: 'rechnungen', 'rechnung-neu': 'rechnungen', kunde: 'kunden', anfragen: 'anfragen', auftrag: 'auftraege' }[route.screen]) || route.screen;
+  const activeNav = ({ rechnung: 'belege', 'rechnung-neu': 'belege', rechnungen: 'belege', angebote: 'belege', kunde: 'kunden', anfragen: 'anfragen', auftrag: 'auftraege' }[route.screen]) || route.screen;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--paper-2)', fontFamily: 'var(--sans)', color: 'var(--text)' }}>

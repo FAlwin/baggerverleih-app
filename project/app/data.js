@@ -186,8 +186,12 @@
   // Einstellungen — ersetzen fest verdrahtete Werte (editierbar auf der Einstellungsseite)
   const SETTINGS = {
     zahlungszielTage: 14,       // Fälligkeit einer Rechnung ab Rechnungsdatum
+    angebotGueltigTage: 14,     // Standard-Gültigkeit eines neuen Angebots
     geschaeftszeitVon: 7,       // Kalender-Wochenansicht: erste Stunde
     geschaeftszeitBis: 19,      // Kalender-Wochenansicht: letzte Stunde
+    // Vermiet-Wochentage (Index 0=Sonntag … 6=Samstag). Abgewählte Tage:
+    // an dem Tag keine Buchung möglich UND sie zählen nicht als Miettag (Enddatum verschiebt sich).
+    mietWochentage: [false, true, true, true, true, true, true],
     nummern: {                  // Nummernkreise: Präfix + Startnummer (Untergrenze)
       rechnung: { prefix: 'R',  start: 1 },
       angebot:  { prefix: 'A',  start: 1 },

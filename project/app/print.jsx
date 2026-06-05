@@ -293,3 +293,36 @@ Print.Mount = function Mount({ doc }) {
 };
 
 window.Print = Print;
+
+// ---- PDF-Download (ohne Druckdialog) ----
+// Rendert das Dokument unsichtbar, erzeugt daraus per html2pdf eine A4-PDF und lädt sie herunter.
+const PDF = {
+  saubererName: (s) => String(s || 'Dokument').replace(/[^\w.\-]+/g, '_'),
+  download(doc, filename) {
+    const name = PDF.saubererName(filename || 'Dokument') + (/\.pdf$/i.test(filename || '') ? '' : '.pdf');
+    if (!window.html2pdf) {
+      // Fallback: Druckdialog, falls die Bibliothek (CDN) nicht geladen ist
+      alert('PDF-Bibliothek nicht geladen – es wird der Druckdialog geöffnet.');
+      window.print();
+      return;
+    }
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;background:#fff;z-index:-1;';
+    document.body.appendChild(holder);
+    const root = ReactDOM.createRoot(holder);
+    root.render(doc);
+    const cleanup = () => { try { root.unmount(); } catch (e) {} if (holder.parentNode) holder.parentNode.removeChild(holder); };
+    const opt = {
+      margin: 0, filename: name,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: holder.scrollWidth },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] },
+    };
+    // kurzer Tick, damit React gerendert hat
+    setTimeout(() => {
+      window.html2pdf().set(opt).from(holder).save().then(cleanup).catch((e) => { console.error(e); cleanup(); });
+    }, 150);
+  },
+};
+window.PDF = PDF;

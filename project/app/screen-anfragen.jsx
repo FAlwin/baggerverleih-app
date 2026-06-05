@@ -49,9 +49,8 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
       anfrageId: anf.id, auftragId, kundeId: match ? match.id : undefined, neuerKunde,
       auftrag: { kundeId, geraetId: anf.geraetId || '', von: anf.von || store.today, bis: anf.bis || anf.von || store.today, vonZeit: anf.vonZeit || '08:00', bisZeit: anf.bisZeit || '17:00', ort: anf.ort || '', notiz: anf.nachricht || '' },
     });
-    toast('Auftrag ' + auftragId + ' angelegt');
     setDetail(null);
-    nav('auftrag', { id: auftragId });
+    toast('Auftrag ' + auftragId + ' angelegt', { action: () => nav('auftrag', { id: auftragId }), label: 'Auftrag öffnen' });
   };
 
   const loeschenAnf = (id) => { const snap = store.snapshot(); store.deleteAnfrage(id); toast('Anfrage gelöscht', { undo: () => store.restoreSnapshot(snap) }); };

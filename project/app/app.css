@@ -47,6 +47,9 @@
   .dash-strip { grid-template-columns: 1fr 1fr; }
 }
 
+/* Countdown-Balken im Undo-/Aktions-Toast */
+@keyframes toastbar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
 /* ===================== DRUCK / PDF (A4) ===================== */
 .print-doc { display: none; }
 

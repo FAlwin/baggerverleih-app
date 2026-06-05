@@ -2,32 +2,48 @@
 window.Screens = window.Screens || {};
 const { useState: agS, useMemo: agM } = React;
 
-// ---- Versenden-Modal ----
-function VersendModal({ angebot, kunde, company, fmtEUR, fmtDate, onSend, onClose }) {
+// ---- Versenden-Modal (generisch: Angebot / Rechnung / Mietvertrag) ----
+function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR, fmtDate, onSend, onClose }) {
   const F = window.FRIESEN;
   const tel = (s) => s ? s.replace(/[^0-9]/g, '').replace(/^0/, '49') : '';
+  const b = beleg || angebot; // Abwärtskompatibel: alter Aufruf mit angebot=
+  const LABEL = { angebot: 'Angebot', rechnung: 'Rechnung', mietvertrag: 'Mietvertrag' }[kind] || 'Beleg';
+
+  const kopf = kind === 'rechnung'
+    ? `hiermit erhalten Sie unsere Rechnung ${b.id} vom ${fmtDate(b.datum)}.`
+    : kind === 'mietvertrag'
+      ? `anbei der Mietvertrag zu Ihrer Anmietung (${b.id}).`
+      : `hiermit erhalten Sie unser Angebot ${b.id} vom ${fmtDate(b.datum)}.`;
+  const fuss = kind === 'rechnung'
+    ? `Bitte überweisen Sie den Gesamtbetrag bis zum ${fmtDate(b.faellig)} unter Angabe der Rechnungsnummer ${b.id}.`
+    : kind === 'mietvertrag'
+      ? `Bitte bringen Sie den unterschriebenen Mietvertrag zur Geräteübergabe mit, oder antworten Sie auf diese Nachricht.`
+      : `Bei Fragen oder zur Auftragsbestätigung antworten Sie einfach auf diese Nachricht oder rufen Sie uns an:`;
 
   const msgText = [
     `Hallo ${kunde.name},`,
     ``,
-    `hiermit erhalten Sie unser Angebot ${angebot.id} vom ${fmtDate(angebot.datum)}.`,
+    kopf,
     ``,
     `Leistungen:`,
-    ...(angebot.positionen || []).map((p) => `  • ${p.text} (${p.menge}× ${p.einheit}) — ${fmtEUR(p.menge * p.preis)}`),
+    ...(b.positionen || []).map((p) => `  • ${p.text} (${p.menge}× ${p.einheit}) — ${fmtEUR(p.menge * p.preis)}`),
     ``,
-    `Gesamtbetrag: ${fmtEUR(angebot.betrag)}`,
-    `Gültig bis: ${fmtDate(angebot.gueltigBis)}`,
+    `Gesamtbetrag: ${fmtEUR(b.betrag != null ? b.betrag : (b.positionen || []).reduce((a, p) => a + p.menge * p.preis, 0))}`,
+    ...(kind === 'angebot' ? [`Gültig bis: ${fmtDate(b.gueltigBis)}`] : []),
+    ...(kind === 'rechnung' ? [`Fällig bis: ${fmtDate(b.faellig)}`] : []),
     ``,
     `Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.`,
     ``,
-    `Bei Fragen oder zur Auftragsbestätigung antworten Sie einfach auf diese Nachricht oder rufen Sie uns an:`,
+    fuss,
     `${company.phone}`,
+    ``,
+    `Das Dokument als PDF hängen Sie bitte aus der App an (Button „PDF herunterladen").`,
     ``,
     `Mit freundlichen Grüßen`,
     `${company.owner} · ${company.name}`,
   ].join('\n');
 
-  const subject = encodeURIComponent(`Angebot ${angebot.id} – ${company.name}`);
+  const subject = encodeURIComponent(`${LABEL} ${b.id} – ${company.name}`);
   const body = encodeURIComponent(msgText);
   const waMsg = encodeURIComponent(msgText);
   const waNum = tel(company.phone);
@@ -57,7 +73,7 @@ function VersendModal({ angebot, kunde, company, fmtEUR, fmtDate, onSend, onClos
   ];
 
   return (
-    <window.UI.Modal open title={`Angebot ${angebot.id} versenden`} onClose={onClose} width={520}
+    <window.UI.Modal open title={`${LABEL} ${b.id} versenden`} onClose={onClose} width={520}
       footer={<><window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn></>}>
       <div className="stack" style={{ gap: 16 }}>
         {/* Message preview */}
@@ -84,7 +100,9 @@ function VersendModal({ angebot, kunde, company, fmtEUR, fmtDate, onSend, onClos
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12.5 }}>
           <Icon name="alert" size={16} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
-          <span>Nach dem Versenden wird das Angebot als <b>Versendet</b> markiert und der Zeitraum im Kalender als Reservierung eingetragen.</span>
+          <span>{kind === 'angebot'
+            ? <>Nach dem Versenden wird das Angebot als <b>Versendet</b> markiert und der Zeitraum im Kalender als Reservierung eingetragen.</>
+            : <>Die Nachricht wird vorausgefüllt geöffnet. Das <b>{LABEL}-PDF</b> bitte zuvor herunterladen und manuell anhängen.</>}</span>
         </div>
       </div>
     </window.UI.Modal>
@@ -156,7 +174,6 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
   const toast = window.UI.useToast();
   const [editId, setEditId] = agS(null);
   const [detailId, setDetailId] = agS(params.openId || null);
-  const [printAngebotId, setPrintAngebotId] = agS(null);
   const [filter, setFilter] = agS('aktiv');
 
   const handleEditSave = (id, patch) => {
@@ -272,7 +289,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="row-actions">
-                        <window.UI.IconBtn name="arrowRight" size={16} title="Öffnen" style={{ width: 32, height: 32 }} onClick={() => setDetailId(a.id)} />
+                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => a.auftragId ? nav('auftrag', { id: a.auftragId }) : setDetailId(a.id)}>Auftrag öffnen</window.UI.Btn>
                       </div>
                     </td>
                   </tr>
@@ -305,8 +322,8 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
         return (
           <window.UI.Modal open title={`Angebot ${a.id}`} onClose={() => setDetailId(null)} width={500}
             footer={<>
-              <window.UI.Btn variant="ghost" icon="print" onClick={() => { setPrintAngebotId(a.id); setTimeout(() => window.print(), 60); }}>Drucken / PDF</window.UI.Btn>
-              {a.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => { setDetailId(null); nav('auftrag', { id: a.auftragId }); }}>Zum Auftrag</window.UI.Btn>}
+              <window.UI.Btn variant="ghost" icon="download" onClick={() => window.PDF.download(<window.Print.AngebotDoc angebot={a} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />, 'Angebot_' + a.id)}>PDF herunterladen</window.UI.Btn>
+              {a.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => { setDetailId(null); nav('auftrag', { id: a.auftragId }); }}>Auftrag öffnen</window.UI.Btn>}
               <window.UI.Btn variant="ghost" onClick={() => setDetailId(null)}>Schließen</window.UI.Btn>
             </>}>
             <div className="stack" style={{ gap: 12 }}>
@@ -338,13 +355,6 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
             </div>
           </window.UI.Modal>
         );
-      })()}
-      {(() => {
-        const pa = printAngebotId ? store.db.angebote.find((x) => x.id === printAngebotId) : null;
-        const pk = pa ? store.kundeById(pa.kundeId) : null;
-        return pa && pk ? (
-          <window.Print.Mount doc={<>{<window.Print.AngebotDoc angebot={pa} kunde={pk} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />}<window.Print.MietbedingungenPage company={store.db.company} /></>} />
-        ) : null;
       })()}
     </>
   );

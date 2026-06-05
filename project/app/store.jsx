@@ -4,11 +4,21 @@
 const DB_KEY = 'friesen_db_v4';
 const { createContext, useContext, useState, useEffect, useCallback, useMemo } = React;
 
+// Überfällig-Automatik: offene Rechnungen, deren Fälligkeit in der Vergangenheit liegt,
+// werden als „überfällig" geführt (nicht-destruktiv, betrifft nur Status 'offen').
+function normalizeOverdue(db) {
+  const today = (window.FRIESEN && window.FRIESEN.APP_TODAY) || '';
+  if (!today || !Array.isArray(db.rechnungen)) return db;
+  db.rechnungen = db.rechnungen.map((r) =>
+    r.status === 'offen' && r.faellig && r.faellig < today ? { ...r, status: 'ueberfaellig' } : r);
+  return db;
+}
+
 function seedDB() {
   const F = window.FRIESEN;
   // tiefe Kopie der Seed-Daten
   const clone = (x) => JSON.parse(JSON.stringify(x));
-  return {
+  return normalizeOverdue({
     company: clone(F.COMPANY),
     flotte: clone(F.FLOTTE),
     preisliste: clone(F.PREISLISTE),
@@ -20,7 +30,7 @@ function seedDB() {
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
     settings: clone(F.SETTINGS),
-  };
+  });
 }
 
 function loadDB() {
@@ -33,7 +43,8 @@ function loadDB() {
       if (!db.belegungen) db.belegungen = [];
       db.settings = { ...JSON.parse(JSON.stringify(F.SETTINGS)), ...(db.settings || {}) };
       db.settings.nummern = { ...JSON.parse(JSON.stringify(F.SETTINGS.nummern)), ...(db.settings.nummern || {}) };
-      return db;
+      if (!Array.isArray(db.settings.mietWochentage)) db.settings.mietWochentage = JSON.parse(JSON.stringify(F.SETTINGS.mietWochentage));
+      return normalizeOverdue(db);
     }
   } catch (e) { /* ignore */ }
   return seedDB();
@@ -47,6 +58,11 @@ function StoreProvider({ children }) {
   useEffect(() => {
     try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) {}
   }, [db]);
+
+  // Vermiet-Wochentage global bereitstellen, damit berechneEnde/ZeitraumPicker sie nutzen können
+  useEffect(() => {
+    window.__miettage = (db.settings && db.settings.mietWochentage) || null;
+  }, [db.settings]);
 
   const F = window.FRIESEN;
   const today = F.APP_TODAY;
@@ -174,6 +190,40 @@ function StoreProvider({ children }) {
     },
     updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Status setzen + nachfolgende Schritte konsistent zurücksetzen.
+    // Wird der Auftrag vor 'bezahlt' zurückgesetzt, wird eine bereits bezahlte Rechnung wieder offen.
+    setAuftragStatusKaskade: (id, status) => setDb((d) => {
+      const flow = (window.FRIESEN && window.FRIESEN.AUFTRAG_FLOW) || [];
+      const idx = flow.indexOf(status);
+      const a = d.auftraege.find((x) => x.id === id);
+      let rechnungen = d.rechnungen;
+      if (a && a.rechnungId && idx < flow.indexOf('bezahlt')) {
+        rechnungen = d.rechnungen.map((r) => r.id === a.rechnungId && r.status === 'bezahlt'
+          ? { ...r, status: r.faellig && r.faellig < today ? 'ueberfaellig' : 'offen', bezahltAm: undefined } : r);
+      }
+      return { ...d, rechnungen, auftraege: d.auftraege.map((x) => x.id === id ? { ...x, status } : x) };
+    }),
+    // Mietvertrag: eine Partei unterschreibt. Sind beide Unterschriften da → Dokument sperren (unveränderlich).
+    mietvertragSign: (auftragId, who, dataUrl) => setDb((d) => ({
+      ...d,
+      auftraege: d.auftraege.map((a) => {
+        if (a.id !== auftragId) return a;
+        const g = a.geraet ? a.geraet : null;
+        const prev = a.mietvertrag || {};
+        if (prev.gesperrt) return a; // bereits gesperrt – keine Änderung
+        const mv = { ...prev, datum: prev.datum || today };
+        if (who === 'v') mv.signaturVermieter = dataUrl;
+        if (who === 'm') mv.signaturMieter = dataUrl;
+        // Positionen-Snapshot beim ersten Unterschreiben festhalten
+        if (!mv.positionen) {
+          const r = a.rechnungId ? d.rechnungen.find((x) => x.id === a.rechnungId) : null;
+          const ang = a.angebotId ? d.angebote.find((x) => x.id === a.angebotId) : null;
+          mv.positionen = (r && r.positionen) || (ang && ang.positionen) || null;
+        }
+        if (mv.signaturVermieter && mv.signaturMieter) mv.gesperrt = true;
+        return { ...a, mietvertrag: mv };
+      }),
+    })),
     // Kunde hat ein versendetes Angebot angenommen → Auftrag fest buchen, Angebot abhaken
     angebotAnnehmen: (auftragId) => setDb((d) => {
       const au = d.auftraege.find((x) => x.id === auftragId);
@@ -336,8 +386,19 @@ function addDays(iso, n) {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
 }
 
+// Ist das Datum ein Vermiet-Wochentag? (liest window.__miettage, Standard: alle Tage)
+function istMiettag(iso) {
+  if (!iso) return true;
+  const mt = window.__miettage;
+  if (!mt) return true;
+  const [y, m, d] = iso.split('-').map(Number);
+  const wd = new Date(y, m - 1, d).getDay(); // 0=So … 6=Sa
+  return mt[wd] !== false;
+}
+
 // Enddatum/-zeit aus Start + Dauer berechnen.
-// einheit 'Tage'  → bis = Start + menge Tage (z. B. 01.06. + 3 = 04.06.)
+// einheit 'Tage'  → menge Miettage ab Start; abgewählte Wochentage werden übersprungen
+//                   (z. B. 01.06. + 3 = 04.06.; mit Sonntag-Sperre verschiebt sich das Ende entsprechend)
 // einheit 'Stunden' → gleiche bzw. überrollende Tage; bisZeit = vonZeit + menge Stunden (z. B. 08:00 + 2 = 10:00)
 function berechneEnde(von, vonZeit, menge, einheit) {
   const n = Math.max(0, Number(menge) || 0);
@@ -350,7 +411,14 @@ function berechneEnde(von, vonZeit, menge, einheit) {
     const p = (x) => String(x).padStart(2, '0');
     return { bis: addDays(von, extraDays), bisZeit: `${p(Math.floor(rest / 60))}:${p(rest % 60)}` };
   }
-  return { bis: addDays(von, n), bisZeit: '17:00' };
+  // Tage: n Schritte vorwärts, abgewählte Wochentage zählen nicht mit
+  let cur = von;
+  for (let i = 0; i < n; i++) {
+    cur = addDays(cur, 1);
+    let guard = 0;
+    while (!istMiettag(cur) && guard < 31) { cur = addDays(cur, 1); guard++; }
+  }
+  return { bis: cur, bisZeit: '17:00' };
 }
 
 // Anzahl Tage zwischen zwei Daten (für Vorbelegung aus Anfrage)
@@ -367,3 +435,4 @@ window.useStore = useStore;
 window.addDays = addDays;
 window.berechneEnde = berechneEnde;
 window.tageZwischen = tageZwischen;
+window.istMiettag = istMiettag;

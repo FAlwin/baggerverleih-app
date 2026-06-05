@@ -22,9 +22,13 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
   const s0 = store.db.settings || {};
   const [allg, setAllg] = esS({
     zahlungszielTage: s0.zahlungszielTage ?? 14,
+    angebotGueltigTage: s0.angebotGueltigTage ?? 14,
     geschaeftszeitVon: s0.geschaeftszeitVon ?? 7,
     geschaeftszeitBis: s0.geschaeftszeitBis ?? 19,
+    mietWochentage: Array.isArray(s0.mietWochentage) ? [...s0.mietWochentage] : [false, true, true, true, true, true, true],
   });
+  const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  const toggleTag = (i) => setAllg((p) => { const m = [...p.mietWochentage]; m[i] = !m[i]; return { ...p, mietWochentage: m }; });
   const [nummern, setNummern] = esS(JSON.parse(JSON.stringify(s0.nummern || {})));
 
   const setF = (k, v) => setFirma((p) => ({ ...p, [k]: v }));
@@ -33,8 +37,10 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
   const speicherAllg = () => {
     store.updateSettings({
       zahlungszielTage: Math.max(0, parseInt(allg.zahlungszielTage, 10) || 0),
+      angebotGueltigTage: Math.max(1, parseInt(allg.angebotGueltigTage, 10) || 14),
       geschaeftszeitVon: Math.min(23, Math.max(0, parseInt(allg.geschaeftszeitVon, 10) || 0)),
       geschaeftszeitBis: Math.min(24, Math.max(1, parseInt(allg.geschaeftszeitBis, 10) || 24)),
+      mietWochentage: allg.mietWochentage,
     });
     toast('Einstellungen gespeichert');
   };
@@ -97,10 +103,29 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
 
         {/* Zahlungsziel & Geschäftszeiten */}
         <window.UI.Card style={{ padding: 18 }}>
-          <Abschnitt titel="Zahlungsziel & Geschäftszeiten" sub="Steuern die Fälligkeit neuer Rechnungen und die Stundenanzeige im Kalender." />
+          <Abschnitt titel="Zahlungsziel, Gültigkeit & Vermiet-Tage" sub="Steuern Fälligkeit, Angebots-Gültigkeit, Kalenderanzeige und an welchen Wochentagen vermietet wird." />
           <div className="stack" style={{ gap: 12, marginTop: 14 }}>
-            <window.UI.Field label="Zahlungsziel (Tage)" hint="Eine neue Rechnung ist so viele Tage nach Rechnungsdatum fällig.">
-              <window.UI.Input type="number" min="0" value={allg.zahlungszielTage} onChange={(e) => setAllg({ ...allg, zahlungszielTage: e.target.value })} style={{ maxWidth: 160 }} />
+            <div className="form-2">
+              <window.UI.Field label="Zahlungsziel (Tage)" hint="Fälligkeit einer neuen Rechnung ab Rechnungsdatum.">
+                <window.UI.Input type="number" min="0" value={allg.zahlungszielTage} onChange={(e) => setAllg({ ...allg, zahlungszielTage: e.target.value })} />
+              </window.UI.Field>
+              <window.UI.Field label="Angebot gültig (Tage)" hint="Standard-Gültigkeit eines neuen Angebots.">
+                <window.UI.Input type="number" min="1" value={allg.angebotGueltigTage} onChange={(e) => setAllg({ ...allg, angebotGueltigTage: e.target.value })} />
+              </window.UI.Field>
+            </div>
+            <window.UI.Field label="Vermiet-Wochentage" hint="Abgewählte Tage: keine Buchung möglich und sie zählen nicht als Miettag (Enddatum verschiebt sich).">
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {WOCHENTAGE.map((w, i) => {
+                  const on = allg.mietWochentage[i];
+                  return (
+                    <button key={i} type="button" onClick={() => toggleTag(i)} style={{
+                      width: 46, height: 40, borderRadius: 'var(--r)', cursor: 'pointer', font: 'inherit', fontSize: 13.5, fontWeight: 700,
+                      border: '1.5px solid ' + (on ? 'var(--ink)' : 'var(--line-2)'),
+                      background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--muted-2)',
+                    }}>{w}</button>
+                  );
+                })}
+              </div>
             </window.UI.Field>
             <div className="form-2">
               <window.UI.Field label="Geschäftszeit von (Uhr)"><window.UI.Input type="number" min="0" max="23" value={allg.geschaeftszeitVon} onChange={(e) => setAllg({ ...allg, geschaeftszeitVon: e.target.value })} /></window.UI.Field>

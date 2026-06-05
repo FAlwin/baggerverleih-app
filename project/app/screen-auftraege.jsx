@@ -247,7 +247,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
   const [statusKorr, setStatusKorr] = auS(false);
-  const [versendOpen, setVersendOpen] = auS(false);
+  const [versendKind, setVersendKind] = auS(null);
   const [editOpen, setEditOpen] = auS(false);
   const [mvOpen, setMvOpen] = auS(false);
   const [previewKind, setPreviewKind] = auS(null);
@@ -259,7 +259,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const k = a.kundeId ? store.kundeById(a.kundeId) : null;
   const angebot = a.angebotId ? store.angebotById(a.angebotId) : null;
   const rechnung = a.rechnungId ? store.rechnungById(a.rechnungId) : null;
-  const ns = nextStep(a, angebot, rechnung, store, nav, toast, { openVersend: () => setVersendOpen(true) });
+  const ns = nextStep(a, angebot, rechnung, store, nav, toast, { openVersend: () => setVersendKind('angebot') });
   const laeuft = laeuftGerade(a, store.today);
   const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort };
 
@@ -325,7 +325,24 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               </button>
               {statusKorr && (
                 <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <window.UI.Select value={a.status} onChange={(e) => { store.setAuftragStatus(a.id, e.target.value); toast('Status aktualisiert'); setStatusKorr(false); }} style={{ maxWidth: 220 }}>
+                  <window.UI.Select value={a.status} onChange={(e) => {
+                    const neu = e.target.value;
+                    const flow = F.AUFTRAG_FLOW;
+                    const lbl = (s) => (F.STATUS[s] || { label: s }).label;
+                    const ci = flow.indexOf(a.status), ni = flow.indexOf(neu);
+                    if (ni === ci) { setStatusKorr(false); return; }
+                    if (ni < ci) {
+                      const folge = flow.slice(ni + 1, ci + 1).map(lbl).join(', ');
+                      const rechnungHinweis = rechnung && rechnung.status === 'bezahlt' && ni < flow.indexOf('bezahlt') ? '\nEine bereits bezahlte Rechnung wird wieder als offen geführt.' : '';
+                      if (!confirm(`Status auf „${lbl(neu)}" zurücksetzen?\n\nDie nachfolgenden Schritte werden ebenfalls zurückgesetzt: ${folge}.${rechnungHinweis}`)) { setStatusKorr(false); return; }
+                      store.setAuftragStatusKaskade(a.id, neu); toast('Status zurückgesetzt'); setStatusKorr(false); return;
+                    }
+                    if (ni > ci + 1) {
+                      const skip = flow.slice(ci + 1, ni).map(lbl).join(', ');
+                      if (!confirm(`Du überspringst Schritte: ${skip}.\n\nTrotzdem direkt auf „${lbl(neu)}" setzen?`)) { setStatusKorr(false); return; }
+                    }
+                    store.setAuftragStatus(a.id, neu); toast('Status aktualisiert'); setStatusKorr(false);
+                  }} style={{ maxWidth: 220 }}>
                     {F.AUFTRAG_FLOW.map((s) => <option key={s} value={s}>{(F.STATUS[s] || { label: s }).label}</option>)}
                   </window.UI.Select>
                 </div>
@@ -365,8 +382,8 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                   <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{angebot.id} · {F.fmtEUR(angebot.betrag)} · gültig bis {F.fmtDate(angebot.gueltigBis)}</div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                     {(angebotStatus === 'offen' || angebotStatus === 'versendet') &&
-                      <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendOpen(true)}>{angebotStatus === 'versendet' ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
-                    <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Verlängern</window.UI.Btn>
+                      <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendKind('angebot')}>{angebotStatus === 'versendet' ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
+                    <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Bearbeiten</window.UI.Btn>
                   </div>
                 </>
               ) : (
@@ -380,12 +397,17 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
             {/* Mietvertrag – erst möglich, wenn Angebot oder Rechnung vorhanden */}
             {(() => {
               const mvReady = !!(angebot || rechnung) && !!k;
+              const mvGesperrt = !!(a.mietvertrag && a.mietvertrag.gesperrt);
               return (
-                <BelegKachel icon="file" title="Mietvertrag" locked={!mvReady} onTitle={mvReady ? () => setMvOpen(true) : null}>
+                <BelegKachel icon="file" title="Mietvertrag" locked={!mvReady} onTitle={mvReady ? () => setMvOpen(true) : null}
+                  status={mvGesperrt ? <window.Pill status="bezahlt" label="Unterschrieben" /> : null}>
                   {mvReady ? (
                     <>
-                      <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Für die Übergabe – unterschreiben & drucken.</div>
-                      <div><window.UI.Btn size="sm" icon="print" onClick={() => setMvOpen(true)}>Öffnen / Drucken</window.UI.Btn></div>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>{mvGesperrt ? 'Beidseitig unterschrieben & gesperrt.' : 'Für die Übergabe – unterschreiben & als PDF speichern.'}</div>
+                      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                        <window.UI.Btn size="sm" icon="file" onClick={() => setMvOpen(true)}>Öffnen</window.UI.Btn>
+                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('mietvertrag')}>Versenden</window.UI.Btn>
+                      </div>
                     </>
                   ) : (
                     <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Erst ein Angebot oder eine Rechnung anlegen.</div>
@@ -401,7 +423,9 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                 <>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{rechnung.id} · {F.fmtEUR(rechnung.betrag)} · fällig {F.fmtDate(rechnung.faellig)}</div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                    <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('rechnung')}>Versenden</window.UI.Btn>
                     {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert'); }}>Als bezahlt</window.UI.Btn>}
+                    {/* Mahnung nur solange nicht bezahlt – schließt sich gegenseitig aus */}
                     {(rechnung.status === 'offen' || rechnung.status === 'ueberfaellig') && <window.UI.Btn size="sm" variant="ghost" icon="alert" onClick={() => { store.setStatus(rechnung.id, 'mahnung'); toast('Mahnung erstellt'); }}>Mahnung</window.UI.Btn>}
                   </div>
                 </>
@@ -429,11 +453,25 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
       </div>
 
       {/* Modale */}
-      {versendOpen && angebot && k && (
-        <window.VersendModal angebot={angebot} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
-          onSend={(ch) => { window.angebotVersenden(store, angebot); toast(`Via ${ch} versendet · als Reserviert markiert`); setVersendOpen(false); }}
-          onClose={() => setVersendOpen(false)} />
-      )}
+      {versendKind && k && (() => {
+        let beleg = null;
+        if (versendKind === 'angebot') beleg = angebot;
+        else if (versendKind === 'rechnung') beleg = rechnung;
+        else if (versendKind === 'mietvertrag') {
+          const pos = (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [];
+          beleg = { id: a.id, datum: (a.mietvertrag && a.mietvertrag.datum) || store.today, positionen: pos, betrag: pos.reduce((s, p) => s + p.menge * p.preis, 0) };
+        }
+        if (!beleg) { return null; }
+        return (
+          <window.VersendModal kind={versendKind} beleg={beleg} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
+            onSend={(ch) => {
+              if (versendKind === 'angebot') { window.angebotVersenden(store, angebot); toast(`Via ${ch} versendet · als Reserviert markiert`); }
+              else toast(`Via ${ch} versendet`);
+              setVersendKind(null);
+            }}
+            onClose={() => setVersendKind(null)} />
+        );
+      })()}
       {editOpen && angebot && (
         <window.EditAngebotModal angebot={angebot}
           onSave={(patch) => { const wasAb = angebot.gueltigBis < store.today; store.updateAngebot(angebot.id, { ...patch, ...(wasAb && patch.gueltigBis >= store.today ? { status: 'offen' } : {}) }); toast('Angebot aktualisiert'); setEditOpen(false); }}
@@ -450,34 +488,43 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
 // ---- Dokument-Vorschau (A4, in-place) für Angebot/Rechnung ----
 function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
   const F = window.FRIESEN;
+  const toast = window.UI.useToast();
   const [ref, scale] = window.useFitScale(793);
+  const [versendOpen, setVersendOpen] = auS(false);
   const k = store.kundeById(auftrag.kundeId);
   const c = store.db.company;
-  let doc, title;
+  let doc, title, beleg, fileName;
   if (kind === 'angebot') {
     const ang = store.angebotById(auftrag.angebotId);
     if (!ang) return null;
+    beleg = ang;
     doc = <window.Print.AngebotDoc angebot={ang} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
-    title = 'Angebot ' + ang.id;
+    title = 'Angebot ' + ang.id; fileName = 'Angebot_' + ang.id;
   } else {
     const r = store.rechnungById(auftrag.rechnungId);
     if (!r) return null;
+    beleg = r;
     doc = <window.Print.RechnungDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
-    title = 'Rechnung ' + r.id;
+    title = 'Rechnung ' + r.id; fileName = 'Rechnung_' + r.id;
   }
   return (
     <window.UI.Modal open title={title} onClose={onClose} width={700}
       footer={<>
         {onEdit && <window.UI.Btn variant="ghost" icon="edit" onClick={onEdit}>Bearbeiten</window.UI.Btn>}
+        {k && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>Versenden</window.UI.Btn>}
         <window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>
-        <window.UI.Btn icon="print" onClick={() => setTimeout(() => window.print(), 60)}>Drucken / PDF</window.UI.Btn>
+        <window.UI.Btn icon="download" onClick={() => window.PDF.download(doc, fileName)}>PDF herunterladen</window.UI.Btn>
       </>}>
       <div ref={ref} style={{ background: 'var(--paper-3)', borderRadius: 'var(--r)', padding: 16, display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
         <div style={{ width: 793 * scale, height: 1122 * scale, flex: '0 0 auto' }}>
           <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: 793, boxShadow: 'var(--shadow-lg)' }}>{doc}</div>
         </div>
       </div>
-      <window.Print.Mount doc={doc} />
+      {versendOpen && k && (
+        <window.VersendModal kind={kind} beleg={beleg} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
+          onSend={(ch) => { if (kind === 'angebot') window.angebotVersenden(store, beleg); toast(`Via ${ch} versendet`); setVersendOpen(false); }}
+          onClose={() => setVersendOpen(false)} />
+      )}
     </window.UI.Modal>
   );
 }
@@ -485,36 +532,56 @@ function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
 // ---- Mietvertrag-Modal (erstklassiger Beleg des Auftrags – schnell bei der Übergabe) ----
 function MietvertragModal({ auftrag, store, onClose }) {
   const F = window.FRIESEN;
+  const toast = window.UI.useToast();
   const g = store.geraetById(auftrag.geraetId);
   const k = store.kundeById(auftrag.kundeId) || { name: '—', kontakt: '', street: '', city: '', phone: '' };
   const rechnung = auftrag.rechnungId ? store.rechnungById(auftrag.rechnungId) : null;
   const angebot = auftrag.angebotId ? store.angebotById(auftrag.angebotId) : null;
-  const positionen = (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [{ text: g?.name || 'Mietgerät', menge: 1, einheit: 'Pauschal', preis: 0 }];
-  const mvDoc = { id: auftrag.id, datum: store.today, positionen, betrag: positionen.reduce((s, p) => s + p.menge * p.preis, 0) };
+  const mv = auftrag.mietvertrag || {};
+  const gesperrt = !!mv.gesperrt;
+  const sigV = mv.signaturVermieter || null;
+  const sigM = mv.signaturMieter || null;
+  // Bei gesperrtem Vertrag den festgehaltenen Positionen-Snapshot nutzen (unveränderlich)
+  const positionen = (gesperrt && mv.positionen) || (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [{ text: g?.name || 'Mietgerät', menge: 1, einheit: 'Pauschal', preis: 0 }];
+  const mvDatum = mv.datum || store.today;
+  const mvDoc = { id: auftrag.id, datum: mvDatum, positionen, betrag: positionen.reduce((s, p) => s + p.menge * p.preis, 0) };
   const mietzeit = auftrag.von === auftrag.bis ? F.fmtDate(auftrag.von) : `${F.fmtDate(auftrag.von)} – ${F.fmtDate(auftrag.bis)}`;
   const [sigPad, setSigPad] = auS(null);
-  const [sigV, setSigV] = auS(null);
-  const [sigM, setSigM] = auS(null);
+  const [versendOpen, setVersendOpen] = auS(false);
   const doc = <window.Print.MietvertragDoc rechnung={mvDoc} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={mietzeit} signaturVermieter={sigV} signaturMieter={sigM} />;
+  const pdfDoc = <>{doc}<window.Print.MietbedingungenPage company={store.db.company} /></>;
   return (
     <window.UI.Modal open title="Mietvertrag" onClose={onClose} width={480}
       footer={<>
         <window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>
-        <window.UI.Btn icon="print" onClick={() => setTimeout(() => window.print(), 60)}>Drucken / PDF</window.UI.Btn>
+        {k && k.id && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>Versenden</window.UI.Btn>}
+        <window.UI.Btn icon="download" onClick={() => window.PDF.download(pdfDoc, 'Mietvertrag_' + auftrag.id)}>PDF herunterladen</window.UI.Btn>
       </>}>
       <div className="stack" style={{ gap: 14 }}>
         <div style={{ fontSize: 13.5, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div><b style={{ color: 'var(--ink)' }}>{g?.name}</b> · {k.name}</div>
           <div>Mietzeit: <b style={{ color: 'var(--ink)' }}>{mietzeit}</b></div>
         </div>
-        <div style={{ padding: '9px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12.5 }}>
-          Bei der Übergabe vor Ort: beide unterschreiben, dann drucken / als PDF speichern.
-        </div>
-        <window.UI.Btn variant={sigV ? 'okghost' : 'ghost'} icon={sigV ? 'check' : 'edit'} onClick={() => setSigPad('v')} style={{ width: '100%' }}>{sigV ? 'Vermieter ✓ (erneut)' : 'Vermieter unterschreiben'}</window.UI.Btn>
-        <window.UI.Btn variant={sigM ? 'okghost' : 'ghost'} icon={sigM ? 'check' : 'edit'} onClick={() => setSigPad('m')} style={{ width: '100%' }}>{sigM ? 'Mieter ✓ (erneut)' : 'Mieter unterschreiben'}</window.UI.Btn>
+        {gesperrt ? (
+          <div style={{ padding: '11px 13px', background: 'var(--ok-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--ok)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Icon name="check" size={16} color="var(--ok)" style={{ flex: '0 0 auto', marginTop: 1 }} />
+            <span><b>Unterschrieben &amp; gesperrt</b> am {F.fmtDate(mvDatum)}. Das Dokument ist beidseitig unterschrieben und kann nicht mehr geändert werden.</span>
+          </div>
+        ) : (
+          <div style={{ padding: '9px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12.5 }}>
+            Bei der Übergabe vor Ort unterschreiben. Sobald <b>beide</b> unterschrieben haben, wird der Vertrag gesperrt und ist unveränderlich.
+          </div>
+        )}
+        <window.UI.Btn variant={sigV ? 'okghost' : 'ghost'} icon={sigV ? 'check' : 'edit'} disabled={!!sigV} onClick={() => setSigPad('v')} style={{ width: '100%' }}>{sigV ? 'Vermieter ✓ unterschrieben' : 'Vermieter unterschreiben'}</window.UI.Btn>
+        <window.UI.Btn variant={sigM ? 'okghost' : 'ghost'} icon={sigM ? 'check' : 'edit'} disabled={!!sigM} onClick={() => setSigPad('m')} style={{ width: '100%' }}>{sigM ? 'Mieter ✓ unterschrieben' : 'Mieter unterschreiben'}</window.UI.Btn>
       </div>
-      <window.Print.Mount doc={<>{doc}<window.Print.MietbedingungenPage company={store.db.company} /></>} />
-      {sigPad && <window.UI.SignaturPad title={sigPad === 'v' ? 'Unterschrift Vermieter (Julian)' : 'Unterschrift Mieter (' + k.name + ')'} onSave={(d) => { sigPad === 'v' ? setSigV(d) : setSigM(d); setSigPad(null); }} onClose={() => setSigPad(null)} />}
+      {sigPad && <window.UI.SignaturPad title={sigPad === 'v' ? 'Unterschrift Vermieter (Julian)' : 'Unterschrift Mieter (' + k.name + ')'}
+        onSave={(d) => { store.mietvertragSign(auftrag.id, sigPad, d); setSigPad(null); toast(sigPad === 'v' ? 'Unterschrift Vermieter gespeichert' : 'Unterschrift Mieter gespeichert'); }}
+        onClose={() => setSigPad(null)} />}
+      {versendOpen && k && k.id && (
+        <window.VersendModal kind="mietvertrag" beleg={{ id: auftrag.id, datum: mvDatum, positionen, betrag: mvDoc.betrag }} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
+          onSend={(ch) => { toast(`Via ${ch} versendet`); setVersendOpen(false); }} onClose={() => setVersendOpen(false)} />
+      )}
     </window.UI.Modal>
   );
 }
