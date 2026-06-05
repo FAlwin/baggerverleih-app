@@ -52,6 +52,17 @@ function BottomNav({ active, onNav }) {
                 );
               })}
             </div>
+            <div className="kicker" style={{ color: 'var(--on-dark-muted)', margin: '16px 0 8px', fontSize: 9 }}>Daten</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button onClick={() => { window.__exportDB && window.__exportDB(); setShowMehr(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--ink-3)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', color: '#fff', font: 'inherit', fontSize: 13.5, fontWeight: 600 }}>
+                <Icon name="download" size={18} color="var(--on-dark-muted)" /> Daten sichern
+              </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--ink-3)', borderRadius: 'var(--r)', cursor: 'pointer', color: '#fff', font: 'inherit', fontSize: 13.5, fontWeight: 600 }}>
+                <Icon name="file" size={18} color="var(--on-dark-muted)" /> Backup einspielen
+                <input type="file" accept="application/json,.json" style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; setShowMehr(false); window.__importDB && window.__importDB(f); }} />
+              </label>
+            </div>
           </div>
         </>
       )}
@@ -225,6 +236,17 @@ function Layout() {
         toast('Demo-Daten zurückgesetzt');
         nav('dashboard');
       }
+    };
+    window.__exportDB = () => {
+      store.exportDB();
+      toast('Backup heruntergeladen');
+    };
+    window.__importDB = (file) => {
+      if (!file) return;
+      if (!confirm('Backup einspielen? Die aktuellen Daten werden dabei ersetzt.')) return;
+      store.importDB(file)
+        .then(() => { toast('Backup eingespielt'); nav('dashboard'); })
+        .catch((e) => { alert('Import fehlgeschlagen: ' + (e.message || e)); });
     };
     window.__anfragenCount = (store.db.anfragen || []).filter((a) => a.status === 'neu').length;
   }, [nav, goBack, history, store, toast, store.db.anfragen]);

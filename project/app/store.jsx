@@ -145,6 +145,40 @@ function StoreProvider({ children }) {
     deleteBuchung: (id) => setDb((d) => ({ ...d, buchungen: d.buchungen.filter((b) => b.id !== id) })),
 
     resetDemo: () => { localStorage.removeItem(DB_KEY); setDb(seedDB()); },
+
+    // ---- Datensicherung ----
+    exportDB: () => {
+      setDb((d) => {
+        const payload = { _typ: 'friesen-backup', _version: DB_KEY, _exportiert: new Date().toISOString(), daten: d };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `friesen-backup-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return d;
+      });
+    },
+    importDB: (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          const daten = parsed && parsed.daten ? parsed.daten : parsed;
+          if (!daten || !Array.isArray(daten.rechnungen) || !Array.isArray(daten.kunden)) {
+            throw new Error('Datei sieht nicht wie ein gültiges Friesen-Backup aus.');
+          }
+          setDb(daten);
+          resolve();
+        } catch (e) { reject(e); }
+      };
+      reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'));
+      reader.readAsText(file);
+    }),
   }), [nextId, today]);
 
   const metrics = useMemo(() => F.computeMetrics(db), [db, F]);

@@ -109,9 +109,19 @@ function Sidebar({ active = 'dashboard', variant = 'A', onNav }) {
         <div style={{ fontWeight: 600, color: 'var(--on-dark)', fontSize: 12.5 }}>{C.owner}</div>
         <div style={{ marginTop: 2 }}>{C.city}</div>
         <div className="kicker" style={{ marginTop: 8, color: 'var(--yellow)', fontSize: 9 }}>§19 UStG · Kleinunternehmer</div>
-        <button onClick={() => window.__resetDemo && window.__resetDemo()} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--on-dark-muted)', font: 'inherit', fontSize: 11, cursor: 'pointer', padding: 0, opacity: 0.8 }} title="Demo-Daten zurücksetzen">
-          <Icon name="trash" size={13} /> Demo zurücksetzen
-        </button>
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button onClick={() => window.__exportDB && window.__exportDB()} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--on-dark-muted)', font: 'inherit', fontSize: 11, cursor: 'pointer', padding: 0, opacity: 0.8 }} title="Alle Daten als Backup-Datei sichern">
+            <Icon name="download" size={13} /> Daten sichern
+          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--on-dark-muted)', font: 'inherit', fontSize: 11, cursor: 'pointer', opacity: 0.8 }} title="Backup-Datei einspielen">
+            <Icon name="file" size={13} /> Backup einspielen
+            <input type="file" accept="application/json,.json" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; window.__importDB && window.__importDB(f); }} />
+          </label>
+          <button onClick={() => window.__resetDemo && window.__resetDemo()} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--on-dark-muted)', font: 'inherit', fontSize: 11, cursor: 'pointer', padding: 0, opacity: 0.8 }} title="Demo-Daten zurücksetzen">
+            <Icon name="trash" size={13} /> Demo zurücksetzen
+          </button>
+        </div>
       </div>
     </aside>
   );
