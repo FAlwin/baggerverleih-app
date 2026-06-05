@@ -159,10 +159,29 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   );
 };
 
+// Nächster-Schritt-Konfiguration je Auftrag-Status
+function nextStep(a, angebot, rechnung, store, nav, toast) {
+  const id = a.id;
+  if (a.status === 'anfrage') return { label: 'Angebot erstellen', icon: 'angebot',
+    action: () => nav('rechnung-neu', { mode: 'angebot', auftragId: id }) };
+  if (a.status === 'angebot') return { label: 'Angebot versenden', icon: 'arrowRight',
+    action: () => a.angebotId ? nav('angebote', { versendId: a.angebotId }) : nav('rechnung-neu', { mode: 'angebot', auftragId: id }) };
+  if (a.status === 'reserviert') return { label: 'Einsatz bestätigen', icon: 'check',
+    action: () => { store.setAuftragStatus(id, 'einsatz'); toast('Einsatz gestartet'); } };
+  if (a.status === 'einsatz') return { label: 'Rechnung erstellen', icon: 'rechnung',
+    action: () => { if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); } else { nav('rechnung-neu', { auftragId: id }); } } };
+  if (a.status === 'abgerechnet' && rechnung) return { label: 'Als bezahlt markieren', icon: 'check',
+    action: () => { store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } };
+  if (a.status === 'bezahlt') return { label: 'Auftrag abschließen', icon: 'check',
+    action: () => { store.setAuftragStatus(id, 'abgeschlossen'); toast('Auftrag abgeschlossen'); } };
+  return null;
+}
+
 window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
+  const [statusKorr, setStatusKorr] = auS(false);
   const a = store.auftragById(params.id);
 
   if (!a) return <><PageHeader title="Auftrag" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
@@ -172,6 +191,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const angebot = a.angebotId ? store.angebotById(a.angebotId) : null;
   const rechnung = a.rechnungId ? store.rechnungById(a.rechnungId) : null;
   const istVermietung = a.typ === 'vermietung';
+  const ns = nextStep(a, angebot, rechnung, store, nav, toast);
 
   const loeschen = () => {
     const teile = [];
@@ -185,23 +205,39 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
     }
   };
 
-  const inRechnung = () => {
-    if (!angebot) return;
-    const neueId = store.convertAngebot(angebot.id);
-    toast('Rechnung ' + neueId + ' erstellt');
-    nav('rechnung', { id: neueId });
-  };
-
   return (
     <>
       <PageHeader kicker="Auftrag" title={a.id} mobile={mobile} onMenu={onMenu} />
       <div className="content-pad stack" style={{ gap: 20 }}>
 
-        {/* Statuszeile nur bei Vermietung sinnvoll */}
+        {/* Statuszeile + Nächster Schritt */}
         {istVermietung && (
-          <window.UI.Card style={{ padding: '18px 18px 14px' }}>
-            <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 12 }}>Status</div>
+          <window.UI.Card style={{ padding: '18px 18px 16px' }}>
             <window.UI.Stepper flow={F.AUFTRAG_FLOW} current={a.status} />
+            {ns && (
+              <window.UI.Btn icon={ns.icon} onClick={ns.action} style={{ width: '100%', marginTop: 16, padding: '12px 16px', fontSize: 15 }}>
+                {ns.label} →
+              </window.UI.Btn>
+            )}
+            {a.status === 'abgeschlossen' && (
+              <div style={{ marginTop: 14, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
+                <Icon name="check" size={16} color="var(--ok)" /> Auftrag abgeschlossen
+              </div>
+            )}
+            {a.status !== 'abgeschlossen' && (
+              <div style={{ marginTop: 8, textAlign: 'center' }}>
+                <button onClick={() => setStatusKorr((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: '4px 8px' }}>
+                  Status manuell korrigieren
+                </button>
+                {statusKorr && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <window.UI.Select value={a.status} onChange={(e) => { store.setAuftragStatus(a.id, e.target.value); toast('Status aktualisiert'); setStatusKorr(false); }} style={{ maxWidth: 220 }}>
+                      {F.AUFTRAG_FLOW.map((s) => <option key={s} value={s}>{(F.STATUS[s] || { label: s }).label}</option>)}
+                    </window.UI.Select>
+                  </div>
+                )}
+              </div>
+            )}
           </window.UI.Card>
         )}
 
@@ -229,7 +265,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
             <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 12 }}>Verknüpfte Belege</div>
             <div className="stack" style={{ gap: 9 }}>
               {angebot
-                ? <button onClick={() => nav('angebote')} style={belegBtn}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="angebot" size={16} color="var(--muted)" /> Angebot {angebot.id}</span><span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><window.Pill status={angebot.status} /><Icon name="chevron" size={15} color="var(--muted-2)" /></span></button>
+                ? <button onClick={() => nav('angebote', { openId: a.angebotId })} style={belegBtn}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="angebot" size={16} color="var(--muted)" /> Angebot {angebot.id}</span><span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><window.Pill status={angebot.status} /><Icon name="chevron" size={15} color="var(--muted-2)" /></span></button>
                 : <div style={belegLeer}><Icon name="angebot" size={16} /> Kein Angebot</div>}
               {rechnung
                 ? <button onClick={() => nav('rechnung', { id: rechnung.id })} style={belegBtn}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="rechnung" size={16} color="var(--muted)" /> Rechnung {rechnung.id}</span><span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><window.Pill status={rechnung.status} /><Icon name="chevron" size={15} color="var(--muted-2)" /></span></button>
@@ -239,28 +275,10 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
           </window.UI.Card>
         </div>
 
-        {/* Aktionen */}
-        <window.UI.Card style={{ padding: 18 }}>
-          <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 12 }}>Aktionen</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {istVermietung && angebot && !rechnung && <window.UI.Btn icon="rechnung" onClick={inRechnung}>In Rechnung umwandeln</window.UI.Btn>}
-            {istVermietung && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
-                Status:
-                <window.UI.Select value={a.status} onChange={(e) => { store.setAuftragStatus(a.id, e.target.value); toast('Status aktualisiert'); }}>
-                  {F.AUFTRAG_FLOW.map((s) => <option key={s} value={s}>{(F.STATUS[s] || { label: s }).label}</option>)}
-                </window.UI.Select>
-              </label>
-            )}
-            <div style={{ flex: 1 }} />
-            <window.UI.Btn variant="danger" icon="trash" onClick={loeschen}>Auftrag löschen</window.UI.Btn>
-          </div>
-          {istVermietung && angebot && !rechnung && (
-            <div style={{ marginTop: 12, padding: '8px 11px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12, color: 'var(--ink)' }}>
-              Beim Umwandeln wird aus dem Angebot eine Rechnung erstellt und mit diesem Auftrag verknüpft.
-            </div>
-          )}
-        </window.UI.Card>
+        {/* Auftrag löschen */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <window.UI.Btn variant="danger" icon="trash" onClick={loeschen}>Auftrag löschen</window.UI.Btn>
+        </div>
       </div>
     </>
   );

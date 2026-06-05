@@ -131,11 +131,11 @@ function EditAngebotModal({ angebot, onSave, onClose }) {
 }
 
 // ---- Main Screen ----
-window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader }) {
+window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
-  const [versendId, setVersendId] = agS(null);
+  const [versendId, setVersendId] = agS(params.versendId || null);
   const [editId, setEditId] = agS(null);
   const [detailId, setDetailId] = agS(null);
   const [printAngebotId, setPrintAngebotId] = agS(null);
@@ -160,8 +160,8 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
     return a.status;
   };
   const allAngebote = [...store.db.angebote].sort((a, b) => b.datum.localeCompare(a.datum));
-  const AKTIV_ST = ['offen', 'versendet'];
-  const ERLEDIGT_ST = ['angenommen', 'abgelaufen'];
+  const AKTIV_ST = ['offen', 'versendet', 'angenommen'];
+  const ERLEDIGT_ST = ['abgelaufen'];
   const angCounts = {
     aktiv: allAngebote.filter((a) => AKTIV_ST.includes(effStatus(a))).length,
     alle: allAngebote.length,
@@ -290,22 +290,12 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
                     <td>
                       <div className="row-actions" style={{ opacity: 1, gap: 5 }}>
                         {(st === 'offen' || st === 'versendet' || st === 'abgelaufen') && (
-                          <window.UI.IconBtn name="edit" size={15} title="Bearbeiten / Verlängern" style={{ width: 32, height: 32 }} onClick={() => setEditId(a.id)} />
+                          <window.UI.IconBtn name="edit" size={15} title="Bearbeiten / Verlängern" style={{ width: 32, height: 32 }} onClick={(e) => { e.stopPropagation(); setEditId(a.id); }} />
                         )}
                         {(st === 'offen' || st === 'versendet') && (
-                          <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendId(a.id)} style={{ fontSize: 12 }}>
-                            {mobile ? '✉' : (st === 'versendet' ? 'Erneut senden' : 'Versenden')}
+                          <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={(e) => { e.stopPropagation(); setVersendId(a.id); }} style={{ fontSize: 12 }}>
+                            {st === 'versendet' ? 'Erneut senden' : 'Versenden'}
                           </window.UI.Btn>
-                        )}
-                        {(st === 'versendet' || st === 'offen' || st === 'angenommen') && (
-                          <window.UI.Btn size="sm" icon="check" onClick={() => convert(a.id)} style={{ fontSize: 12 }}>
-                            {mobile ? '' : 'In Rechnung'}
-                          </window.UI.Btn>
-                        )}
-                        {st === 'angenommen' && (
-                          <span style={{ fontSize: 11.5, color: 'var(--ok)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Icon name="check" size={13} /> angenommen
-                          </span>
                         )}
                       </div>
                     </td>
@@ -322,7 +312,7 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
         <div style={{ display: 'flex', gap: 16, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="offen" label="Offen" style={{ transform: 'scale(.85)' }} /> Noch nicht versendet</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="ueberfaellig" label="Versendet" style={{ transform: 'scale(.85)' }} /> An Kunde übermittelt, Zeitraum reserviert</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="bezahlt" label="Angenommen" style={{ transform: 'scale(.85)' }} /> Kann in Rechnung umgewandelt werden</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="bezahlt" label="Angenommen" style={{ transform: 'scale(.85)' }} /> Auftrag öffnen → Rechnung erstellen</span>
         </div>
       </div>
 
@@ -352,10 +342,8 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
           <window.UI.Modal open title={`Angebot ${a.id}`} onClose={() => setDetailId(null)} width={500}
             footer={<>
               <window.UI.Btn variant="ghost" icon="print" onClick={() => { setPrintAngebotId(a.id); setTimeout(() => window.print(), 60); }}>Drucken / PDF</window.UI.Btn>
+              {a.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => { setDetailId(null); nav('auftrag', { id: a.auftragId }); }}>Zum Auftrag</window.UI.Btn>}
               <window.UI.Btn variant="ghost" onClick={() => setDetailId(null)}>Schließen</window.UI.Btn>
-              {(st === 'versendet' || st === 'offen' || st === 'angenommen') && (
-                <window.UI.Btn icon="check" onClick={() => { convert(a.id); setDetailId(null); }}>In Rechnung umwandeln</window.UI.Btn>
-              )}
             </>}>
             <div className="stack" style={{ gap: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

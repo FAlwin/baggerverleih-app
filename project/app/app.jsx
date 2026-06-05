@@ -16,12 +16,12 @@ function useMedia(q) {
 const BOTTOM_TABS = [
   { id: 'dashboard',  icon: 'dashboard', label: 'Home' },
   { id: 'anfragen',   icon: 'bell',      label: 'Anfragen', badge: true },
+  { id: 'auftraege',  icon: 'file',      label: 'Aufträge' },
   { id: 'kalender',   icon: 'kalender',  label: 'Kalender' },
-  { id: 'rechnungen', icon: 'rechnung',  label: 'Rechnungen' },
   { id: '_mehr',      icon: 'grid',      label: 'Mehr' },
 ];
 const MEHR_ITEMS = [
-  { id: 'auftraege',   icon: 'file',        label: 'Aufträge' },
+  { id: 'rechnungen',  icon: 'rechnung',    label: 'Rechnungen' },
   { id: 'angebote',    icon: 'angebot',     label: 'Angebote' },
   { id: 'kunden',      icon: 'kunden',      label: 'Kunden' },
   { id: 'flotte',      icon: 'flotte',      label: 'Flotte' },

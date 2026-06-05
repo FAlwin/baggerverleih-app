@@ -204,26 +204,26 @@ UI.SignaturPad = function SignaturPad({ title, onSave, onClose }) {
 UI.Stepper = function Stepper({ flow, current }) {
   const F = window.FRIESEN;
   const idx = flow.indexOf(current);
+  const activeLabel = (F.STATUS[current] || { label: current }).label;
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', overflowX: 'auto', padding: '4px 2px', gap: 0 }}>
-      {flow.map((key, i) => {
-        const done = i < idx, active = i === idx;
-        const reached = i <= idx;
-        const label = (F.STATUS[key] || { label: key }).label;
-        const dotBg = active ? 'var(--yellow)' : reached ? 'var(--ink)' : 'var(--paper-3)';
-        const dotCol = active || reached ? (active ? 'var(--ink)' : '#fff') : 'var(--muted-2)';
-        return (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', flex: i < flow.length - 1 ? 1 : '0 0 auto', minWidth: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>
-              <div style={{ width: 24, height: 24, borderRadius: 12, background: dotBg, color: dotCol, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, boxShadow: active ? '0 0 0 4px var(--yellow-wash)' : 'none', flex: '0 0 auto' }}>
-                {done ? <Icon name="check" size={13} color="#fff" /> : i + 1}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '4px 2px', gap: 0 }}>
+        {flow.map((key, i) => {
+          const done = i < idx, active = i === idx;
+          const reached = i <= idx;
+          const dotBg = active ? 'var(--yellow)' : reached ? 'var(--ink)' : 'var(--paper-3)';
+          const dotCol = active ? 'var(--ink)' : reached ? '#fff' : 'var(--muted-2)';
+          return (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', flex: i < flow.length - 1 ? 1 : '0 0 auto' }}>
+              <div style={{ width: 22, height: 22, borderRadius: 11, background: dotBg, color: dotCol, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 700, boxShadow: active ? '0 0 0 3px var(--yellow-wash)' : 'none', flex: '0 0 22px' }}>
+                {done ? <Icon name="check" size={12} color="#fff" /> : i + 1}
               </div>
-              <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, color: active ? 'var(--ink)' : reached ? 'var(--text)' : 'var(--muted-2)', whiteSpace: 'nowrap' }}>{label}</span>
+              {i < flow.length - 1 && <div style={{ flex: 1, height: 2, background: i < idx ? 'var(--ink)' : 'var(--paper-3)', minWidth: 8 }} />}
             </div>
-            {i < flow.length - 1 && <div style={{ flex: 1, height: 2, background: i < idx ? 'var(--ink)' : 'var(--paper-3)', margin: '11px 4px 0', minWidth: 12 }} />}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginTop: 6 }}>{activeLabel}</div>
     </div>
   );
 };
