@@ -20,6 +20,7 @@ window.useFitScale = useFitScale;
 
 function StatusFilter({ value, onChange, counts }) {
   const tabs = [
+    { id: 'aktiv', label: 'Zu erledigen' },
     { id: 'alle', label: 'Alle' },
     { id: 'offen', label: 'Offen' },
     { id: 'ueberfaellig', label: 'Überfällig' },
@@ -48,14 +49,15 @@ function StatusFilter({ value, onChange, counts }) {
 window.Screens.rechnungen = function Rechnungen({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
-  const [filter, setFilter] = rS(params.filter || 'alle');
+  const [filter, setFilter] = rS(params.filter || 'aktiv');
   const [q, setQ] = rS('');
 
   const all = store.db.rechnungen;
-  const counts = { alle: all.length };
+  const AKTIV = ['offen', 'ueberfaellig', 'mahnung'];
+  const counts = { alle: all.length, aktiv: all.filter((r) => AKTIV.includes(r.status)).length };
   ['offen', 'ueberfaellig', 'mahnung', 'bezahlt'].forEach((s) => counts[s] = all.filter((r) => r.status === s).length);
 
-  let rows = all.filter((r) => filter === 'alle' || r.status === filter);
+  let rows = all.filter((r) => filter === 'alle' ? true : filter === 'aktiv' ? AKTIV.includes(r.status) : r.status === filter);
   if (q) { const ql = q.toLowerCase(); rows = rows.filter((r) => (r.id + store.kundeById(r.kundeId).name).toLowerCase().includes(ql)); }
   rows = [...rows].sort((a, b) => b.datum.localeCompare(a.datum));
 

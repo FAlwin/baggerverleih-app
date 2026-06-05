@@ -139,6 +139,7 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
   const [editId, setEditId] = agS(null);
   const [detailId, setDetailId] = agS(null);
   const [printAngebotId, setPrintAngebotId] = agS(null);
+  const [filter, setFilter] = agS('aktiv');
 
   const handleEditSave = (id, patch) => {
     const wasAbgelaufen = store.db.angebote.find((a) => a.id === id)?.gueltigBis < store.today;
@@ -158,7 +159,20 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
     if (a.gueltigBis < store.today) return 'abgelaufen';
     return a.status;
   };
-  const rows = [...store.db.angebote].sort((a, b) => b.datum.localeCompare(a.datum));
+  const allAngebote = [...store.db.angebote].sort((a, b) => b.datum.localeCompare(a.datum));
+  const AKTIV_ST = ['offen', 'versendet'];
+  const ERLEDIGT_ST = ['angenommen', 'abgelaufen'];
+  const angCounts = {
+    aktiv: allAngebote.filter((a) => AKTIV_ST.includes(effStatus(a))).length,
+    alle: allAngebote.length,
+    erledigt: allAngebote.filter((a) => ERLEDIGT_ST.includes(effStatus(a))).length,
+  };
+  const rows = allAngebote.filter((a) => {
+    const st = effStatus(a);
+    if (filter === 'aktiv') return AKTIV_ST.includes(st);
+    if (filter === 'erledigt') return ERLEDIGT_ST.includes(st);
+    return true;
+  });
 
   const convert = (id) => {
     const rid = store.convertAngebot(id);
@@ -207,8 +221,43 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
       </PageHeader>
 
       <div className="content-pad stack" style={{ gap: 16 }}>
+        {/* Filter-Tabs */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[['aktiv','Zu erledigen'],['alle','Alle'],['erledigt','Erledigt']].map(([id, label]) => {
+            const on = filter === id;
+            return (
+              <button key={id} onClick={() => setFilter(id)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 'var(--r)', border: '1.5px solid ' + (on ? 'var(--ink)' : 'var(--line-2)'), background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--ink)', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                {label}
+                <span className="mono" style={{ fontSize: 11, padding: '1px 6px', borderRadius: 8, background: on ? 'rgba(255,255,255,.18)' : 'var(--paper-3)', color: on ? '#fff' : 'var(--muted)' }}>{angCounts[id]}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <window.UI.Card style={{ padding: 0, overflow: 'hidden' }} className="scroll-x">
-          <table className="fr-table">
+          {/* Mobile Karten */}
+          {mobile ? (
+            <div>
+              {rows.map((a) => {
+                const k = store.kundeById(a.kundeId);
+                const st = effStatus(a);
+                return (
+                  <button key={a.id} onClick={() => setDetailId(a.id)} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '14px 16px', border: 'none', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div><div style={{ fontWeight: 700, fontSize: 14 }}>{k?.name}</div><div className="num" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{a.id} · {F.fmtDate(a.datum)}</div></div>
+                        <div style={{ textAlign: 'right', flex: '0 0 auto' }}><div className="num" style={{ fontWeight: 700, fontSize: 15 }}>{F.fmtEUR(a.betrag)}</div><div style={{ marginTop: 4 }}><window.Pill status={pillFor(st)} label={statusLabel(st)} /></div></div>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>Gültig bis {F.fmtDate(a.gueltigBis)}</div>
+                    </div>
+                    <Icon name="chevron" size={16} color="var(--muted-2)" style={{ flex: '0 0 auto' }} />
+                  </button>
+                );
+              })}
+              {rows.length === 0 && <window.UI.Empty icon="angebot" title="Keine Angebote" sub="Für diesen Filter gibt es keine Einträge." />}
+            </div>
+          ) : (
+          <><table className="fr-table">
             <thead><tr>
               <th>Nr.</th><th>Kunde</th><th className="hide-sm">Datum</th><th>Gültig bis</th>
               <th style={{ textAlign: 'right' }}>Betrag</th><th>Status</th><th></th>
@@ -265,8 +314,10 @@ window.Screens.angebote = function Angebote({ nav, mobile, onMenu, PageHeader })
               })}
             </tbody>
           </table>
-          {rows.length === 0 && <window.UI.Empty icon="angebot" title="Keine Angebote" sub="Noch keine Angebote erstellt." />}
+          {rows.length === 0 && <window.UI.Empty icon="angebot" title="Keine Angebote" sub="Für diesen Filter gibt es keine Einträge." />}
+          </>)}
         </window.UI.Card>
+
 
         <div style={{ display: 'flex', gap: 16, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="offen" label="Offen" style={{ transform: 'scale(.85)' }} /> Noch nicht versendet</span>

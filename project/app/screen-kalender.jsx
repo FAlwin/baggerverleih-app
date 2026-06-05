@@ -40,7 +40,7 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
   const toast = window.UI.useToast();
   const machines = store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport');
 
-  const [view, setView] = cvS('month');
+  const [view, setView] = cvS(mobile ? 'agenda' : 'month');
   const [focusDate, setFocus] = cvS(store.today);
   const [modal, setModal] = cvS(null);
   const [conflict, setConflict] = cvS(null);
@@ -257,18 +257,148 @@ window.Screens.kalender = function Kalender({ nav, mobile, onMenu, PageHeader })
     );
   };
 
+  // ---- AGENDA VIEW (mobile default): N Tage als Liste ----
+  const AgendaView = () => {
+    const days = Array.from({ length: 28 }, (_, i) => window.addDays(focusDate, i - (focusDate === store.today ? 0 : 0)));
+    return (
+      <div className="stack" style={{ gap: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <window.UI.IconBtn name="chevron" size={18} style={{ transform: 'scaleX(-1)' }} onClick={() => setFocus(window.addDays(focusDate, -7))} />
+          <div style={{ flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 15 }}>{MON[parseInt(focusDate.slice(5,7))-1]} {focusDate.slice(0,4)}</div>
+          <window.UI.IconBtn name="chevron" size={18} onClick={() => setFocus(window.addDays(focusDate, 7))} />
+          <window.UI.Btn variant="ghost" size="sm" onClick={() => setFocus(store.today)}>Heute</window.UI.Btn>
+        </div>
+        <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
+          {days.map((day) => {
+            const ts = termineForMonth(day);
+            const isToday = day === store.today;
+            const [, dm, dd] = day.split('-').map(Number);
+            const wd = WD[(new Date(day.split('-')[0], dm-1, dd).getDay() + 6) % 7];
+            return (
+              <div key={day} style={{ display: 'flex', borderBottom: '1px solid var(--paper-3)', background: isToday ? 'var(--yellow-wash)' : 'transparent', minHeight: 44 }}>
+                <div style={{ width: 56, flex: '0 0 56px', padding: '10px 8px', textAlign: 'center', borderRight: '1.5px solid var(--line)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: isToday ? 'var(--yellow-deep)' : 'var(--muted)', textTransform: 'uppercase' }}>{wd}</div>
+                  <div className="num" style={{ fontSize: 18, fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--yellow-deep)' : 'var(--ink)', lineHeight: 1.1 }}>{dd}</div>
+                </div>
+                <div style={{ flex: 1, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5, justifyContent: 'center' }}>
+                  {ts.length === 0
+                    ? <span style={{ fontSize: 12, color: 'var(--muted-2)', fontStyle: 'italic' }}>frei</span>
+                    : ts.map((t) => {
+                        const g = store.geraetById(t.geraetId);
+                        const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : 'Belegung' });
+                        const isRes = t.quellTyp === 'reservierung';
+                        const bg = t.quellTyp === 'privat' ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
+                        const col = t.quellTyp === 'privat' ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
+                        return (
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', background: bg, border: isRes ? '1.5px dashed var(--warn)' : 'none', borderRadius: 4, cursor: 'pointer', font: 'inherit', color: col, textAlign: 'left' }}>
+                            {g && <window.GeraetBadge geraet={g} size={20} />}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name}</div>
+                              {t.vonZeit && <div style={{ fontSize: 10.5, opacity: 0.85 }}>{t.vonZeit}–{t.bisZeit}{t.ort ? ' · ' + t.ort : ''}</div>}
+                            </div>
+                          </button>
+                        );
+                      })
+                  }
+                </div>
+              </div>
+            );
+          })}
+        </window.UI.Card>
+      </div>
+    );
+  };
+
+  // ---- GERÄTE-ZEITLEISTE (mobile, übersicht): Maschine × Wochentag ----
+  const GeraeteView = () => (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <window.UI.IconBtn name="chevron" size={18} style={{ transform: 'scaleX(-1)' }} onClick={() => setFocus(window.addDays(weekStart, -7))} />
+        <div style={{ flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 15 }}>KW {kwOf(weekStart)}</div>
+        <window.UI.IconBtn name="chevron" size={18} onClick={() => setFocus(window.addDays(weekStart, 7))} />
+        <window.UI.Btn variant="ghost" size="sm" onClick={() => setFocus(store.today)}>Heute</window.UI.Btn>
+      </div>
+      <window.UI.Card style={{ padding: 0, overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1.5px solid var(--line)', background: 'var(--paper)', fontWeight: 700, fontSize: 12, position: 'sticky', left: 0, zIndex: 3 }}>Gerät</th>
+              {weekDays.map((day) => {
+                const isToday = day === store.today;
+                const [, dm, dd] = day.split('-').map(Number);
+                const wd = WD[(new Date(day.split('-')[0], dm-1, dd).getDay() + 6) % 7];
+                return (
+                  <th key={day} style={{ padding: '6px 4px', textAlign: 'center', borderBottom: '1.5px solid var(--line)', background: isToday ? 'var(--yellow-wash)' : 'var(--paper)', minWidth: 44, borderLeft: '1px solid var(--paper-3)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isToday ? 'var(--yellow-deep)' : 'var(--muted)' }}>{wd}</div>
+                    <div className="num" style={{ fontSize: 14, fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--yellow-deep)' : 'var(--ink)' }}>{dd}</div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {machines.map((g) => (
+              <tr key={g.id}>
+                <td style={{ padding: '6px 10px', borderBottom: '1px solid var(--paper-3)', background: 'var(--paper)', position: 'sticky', left: 0, zIndex: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <window.GeraetBadge geraet={g} size={24} />
+                    <span style={{ fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>{g.name.replace('1,9t ', '').replace('Plateauanhänger', 'Anhänger').replace('Betonrüttler', 'Rüttler')}</span>
+                  </div>
+                </td>
+                {weekDays.map((day) => {
+                  const ts = termineForDay(g.id, day);
+                  const isToday = day === store.today;
+                  return (
+                    <td key={day} style={{ padding: 3, borderBottom: '1px solid var(--paper-3)', borderLeft: '1px solid var(--paper-3)', background: isToday ? 'rgba(247,199,42,.05)' : 'transparent', verticalAlign: 'top' }}>
+                      {ts.map((t) => {
+                        const k = t.quellTyp === 'privat' ? { name: 'Privat' } : (store.kundeById(t.kundeId) || { name: t.typ === 'wartung' ? 'Wartung' : '—' });
+                        const isRes = t.quellTyp === 'reservierung';
+                        const bg = t.quellTyp === 'privat' ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : g.farbe;
+                        const col = t.quellTyp === 'privat' ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g.farbe) ? '#141414' : '#fff');
+                        return (
+                          <button key={t.id} onClick={() => setDetail(t)} style={{ display: 'block', width: '100%', padding: '3px 5px', background: bg, border: isRes ? '1px dashed var(--warn)' : 'none', borderRadius: 3, color: col, cursor: 'pointer', font: 'inherit', textAlign: 'left', marginBottom: 2 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name?.split(' ').slice(-1)[0]}</div>
+                            {t.vonZeit && <div style={{ fontSize: 9.5, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</div>}
+                          </button>
+                        );
+                      })}
+                      {ts.length === 0 && <div style={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <button onClick={() => openAdd(g.id, day)} style={{ width: 20, height: 20, borderRadius: 10, background: 'var(--paper-3)', border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                          <Icon name="plus" size={11} color="var(--muted-2)" />
+                        </button>
+                      </div>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </window.UI.Card>
+    </div>
+  );
+
   return (
     <>
       <PageHeader kicker="Disposition" title="Terminkalender" mobile={mobile} onMenu={onMenu}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <window.UI.Btn variant={view === 'month' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('month')}>Monat</window.UI.Btn>
-          <window.UI.Btn variant={view === 'week' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('week')}>Woche</window.UI.Btn>
-        </div>
+        {!mobile && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <window.UI.Btn variant={view === 'month' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('month')}>Monat</window.UI.Btn>
+            <window.UI.Btn variant={view === 'week' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('week')}>Woche</window.UI.Btn>
+          </div>
+        )}
         <window.UI.Btn icon="plus" onClick={() => openAdd(machines[0]?.id, store.today)}>{mobile ? 'Neu' : 'Neuer Termin'}</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad">
-        {view === 'month' ? <MonthView /> : <WeekView />}
+        {/* Mobile-Ansicht-Umschalter direkt in der Content-Area */}
+        {mobile && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <window.UI.Btn variant={view === 'agenda' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('agenda')}>Agenda</window.UI.Btn>
+            <window.UI.Btn variant={view === 'geraete' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('geraete')}>Geräteplan</window.UI.Btn>
+          </div>
+        )}
+        {view === 'month' ? <MonthView /> : view === 'week' ? <WeekView /> : view === 'agenda' ? <AgendaView /> : <GeraeteView />}
         <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, background: 'var(--yellow)', borderLeft: '3px solid var(--ink)', borderRadius: 2 }} /> Buchung</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 10, border: '2px dashed var(--warn)', borderRadius: 2, borderLeft: '3px solid var(--warn)' }} /> Reservierung (offenes Angebot)</span>

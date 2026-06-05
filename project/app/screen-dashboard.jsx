@@ -18,6 +18,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
     return base.replace('Plateauanhänger', 'Plateauanh.').replace('Betonrüttler', 'Rüttler').replace('Minibagger', 'Bagger');
   };
   const [neuOpen, setNeuOpen] = React.useState(false);
+  const [belegDetail, setBelegDetail] = React.useState(null);
 
   const stats = [
     { k: 'Umsatz Juni', v: F.fmtEUR(m.umsatzMonat), foot: 'Mai ' + F.fmtEUR(m.umsatzVormonat), go: ['buchhaltung'] },
@@ -122,7 +123,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
                           const bg = isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
                           const col = isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
                           return (
-                            <button key={t.id} onClick={() => nav('kalender')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 6px', background: bg, border: isRes ? '1px dashed var(--warn)' : 'none', borderRadius: 3, cursor: 'pointer', font: 'inherit', color: col }}>
+                            <button key={t.id} onClick={() => setBelegDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 6px', background: bg, border: isRes ? '1px dashed var(--warn)' : 'none', borderRadius: 3, cursor: 'pointer', font: 'inherit', color: col }}>
                               {g && <window.GeraetBadge geraet={g} size={18} />}
                               <span style={{ fontSize: 12, fontWeight: 700 }}>{k?.name?.split(' ').slice(-1)[0]}</span>
                               {t.vonZeit && <span style={{ fontSize: 11, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</span>}
@@ -168,6 +169,34 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
           </window.UI.Card>
         </div>
       </div>
+
+      {/* Belegungs-Detail-Modal (Dashboard → Auftrag) */}
+      <window.UI.Modal open={!!belegDetail} onClose={() => setBelegDetail(null)} title="Belegung" width={420}
+        footer={belegDetail && <>
+          <window.UI.Btn variant="ghost" onClick={() => { setBelegDetail(null); nav('auftraege'); }}>Alle Aufträge</window.UI.Btn>
+          {belegDetail.id && <window.UI.Btn onClick={() => { setBelegDetail(null); nav('auftrag', { id: belegDetail.id }); }}>Auftrag öffnen</window.UI.Btn>}
+          <window.UI.Btn variant="ghost" onClick={() => setBelegDetail(null)}>Schließen</window.UI.Btn>
+        </>}>
+        {belegDetail && (() => {
+          const g = store.geraetById(belegDetail.geraetId);
+          const k = belegDetail.quellTyp === 'privat' ? { name: 'Privat (Julian)' } : (store.kundeById(belegDetail.kundeId) || { name: belegDetail.typ === 'wartung' ? 'Wartung' : 'Belegung' });
+          return (
+            <div className="stack" style={{ gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {g && <window.GeraetBadge geraet={g} size={40} />}
+                <div><div style={{ fontWeight: 700, fontSize: 15 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
+              </div>
+              <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 7, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="kunden" size={15} color="var(--muted)" />{k?.name}</div>
+                <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Datum:</b> {F.fmtDate(belegDetail.von)}{belegDetail.bis !== belegDetail.von ? ' – ' + F.fmtDate(belegDetail.bis) : ''}</div>
+                {belegDetail.vonZeit && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Uhrzeit:</b> {belegDetail.vonZeit}–{belegDetail.bisZeit}</div>}
+                {belegDetail.ort && <div style={{ color: 'var(--muted)' }}><b style={{ color: 'var(--ink)' }}>Ort:</b> {belegDetail.ort}</div>}
+                {belegDetail.quellTyp === 'reservierung' && <div style={{ padding: '8px 11px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--warn)', fontWeight: 600 }}>⚠ Reservierung – Angebot noch offen</div>}
+              </div>
+            </div>
+          );
+        })()}
+      </window.UI.Modal>
     </>
   );
 };

@@ -14,6 +14,17 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
   const toast = window.UI.useToast();
   const [filter, setFilter] = anfS('alle');
   const [detail, setDetail] = anfS(null);
+  const [neuOpen, setNeuOpen] = anfS(false);
+  const LEER_ANF = { name: '', phone: '', email: '', geraetId: 'bagger', von: '', bis: '', ort: '', nachricht: '' };
+  const [neuForm, setNeuForm] = anfS(LEER_ANF);
+
+  const saveNeu = () => {
+    if (!neuForm.name.trim()) { alert('Bitte einen Namen angeben.'); return; }
+    store.addAnfrage({ ...neuForm, name: neuForm.name.trim() });
+    toast('Anfrage gespeichert');
+    setNeuForm(LEER_ANF);
+    setNeuOpen(false);
+  };
 
   const all = store.anfragen || [];
   const rows = all
@@ -69,7 +80,7 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
     const g = store.geraetById(a.geraetId);
     const st = ANF_STATUS[a.status] || ANF_STATUS.neu;
     return (
-      <button onClick={() => setDetail(a)} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', padding: '14px 16px', border: 'none', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+      <div onClick={() => setDetail(a)} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', padding: '14px 16px', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer' }}>
         {g && <window.GeraetBadge geraet={g} size={40} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
@@ -91,21 +102,14 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
           )}
         </div>
         <Icon name="chevron" size={16} color="var(--muted-2)" style={{ marginTop: 4, flex: '0 0 auto' }} />
-      </button>
+      </div>
     );
   };
 
   return (
     <>
-      <PageHeader kicker="Kontaktformular" title="Anfragen" mobile={mobile}>
-        {/* On mobile: compact icon button only */}
-        {mobile ? (
-          <window.UI.IconBtn name="arrowRight" title="Kontaktformular öffnen" onClick={() => window.open('contact.html', '_blank', 'noopener,noreferrer')} style={{ width: 40, height: 40 }} />
-        ) : (
-          <button onClick={() => window.open('contact.html', '_blank', 'noopener,noreferrer')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'var(--yellow)', border: 'none', borderRadius: 'var(--r)', color: 'var(--ink)', font: 'inherit', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-            <Icon name="arrowRight" size={16} /> Kontaktformular öffnen ↗
-          </button>
-        )}
+      <PageHeader kicker="Eingehende Anfragen" title="Anfragen" mobile={mobile}>
+        <window.UI.Btn icon="plus" onClick={() => setNeuOpen(true)}>{mobile ? 'Neu' : 'Neue Anfrage'}</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad stack" style={{ gap: 14 }}>
@@ -167,6 +171,31 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
           )
         )}
       </div>
+
+      {/* Neue Anfrage intern erfassen */}
+      <window.UI.Modal open={neuOpen} onClose={() => setNeuOpen(false)} title="Neue Anfrage erfassen" width={460}
+        footer={<><window.UI.Btn variant="ghost" onClick={() => setNeuOpen(false)}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={saveNeu}>Anfrage speichern</window.UI.Btn></>}>
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="form-2">
+            <window.UI.Field label="Name *"><window.UI.Input value={neuForm.name} onChange={(e) => setNeuForm({ ...neuForm, name: e.target.value })} placeholder="Vor- und Nachname" /></window.UI.Field>
+            <window.UI.Field label="Telefon"><window.UI.Input type="tel" value={neuForm.phone} onChange={(e) => setNeuForm({ ...neuForm, phone: e.target.value })} placeholder="0172 …" /></window.UI.Field>
+          </div>
+          <window.UI.Field label="E-Mail"><window.UI.Input type="email" value={neuForm.email} onChange={(e) => setNeuForm({ ...neuForm, email: e.target.value })} placeholder="name@beispiel.de" /></window.UI.Field>
+          <window.UI.Field label="Gewünschtes Gerät">
+            <window.UI.Select value={neuForm.geraetId} onChange={(e) => setNeuForm({ ...neuForm, geraetId: e.target.value })}>
+              {store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport').map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </window.UI.Select>
+          </window.UI.Field>
+          <div className="form-2">
+            <window.UI.Field label="Von (Datum)"><window.UI.Input type="date" value={neuForm.von} onChange={(e) => setNeuForm({ ...neuForm, von: e.target.value })} /></window.UI.Field>
+            <window.UI.Field label="Bis (Datum)"><window.UI.Input type="date" value={neuForm.bis} onChange={(e) => setNeuForm({ ...neuForm, bis: e.target.value })} /></window.UI.Field>
+          </div>
+          <window.UI.Field label="Einsatzort"><window.UI.Input value={neuForm.ort} onChange={(e) => setNeuForm({ ...neuForm, ort: e.target.value })} placeholder="z. B. Baustelle Siegburg" /></window.UI.Field>
+          <window.UI.Field label="Nachricht / Notiz">
+            <window.UI.Textarea value={neuForm.nachricht} onChange={(e) => setNeuForm({ ...neuForm, nachricht: e.target.value })} placeholder="Was ist geplant?" rows={3} />
+          </window.UI.Field>
+        </div>
+      </window.UI.Modal>
 
       {/* Detail-Modal */}
       <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title="Anfrage" width={480}
