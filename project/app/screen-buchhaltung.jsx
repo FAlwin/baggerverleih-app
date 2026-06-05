@@ -93,7 +93,7 @@ window.Screens.buchhaltung = function Buchhaltung({ mobile, onMenu, PageHeader }
       </PageHeader>
 
       <div className="content-pad stack" style={{ gap: 18 }}>
-        <div className="dash-strip" style={{ gridTemplateColumns: 'repeat(3,1fr)', gap: 16, display: 'grid' }}>
+        <div className="dash-strip" style={{ gridTemplateColumns: mobile ? '1fr' : 'repeat(3,1fr)', gap: 16, display: 'grid' }}>
           {[
             { k: 'Einnahmen', v: einnahmen, c: 'var(--ok)' },
             { k: 'Ausgaben', v: ausgaben, c: 'var(--danger)' },
@@ -151,7 +151,7 @@ window.Screens.buchhaltung = function Buchhaltung({ mobile, onMenu, PageHeader }
           </div>
         </window.UI.Card>
 
-        <div className="split-2" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
+        <div className="split-2" style={{ gridTemplateColumns: mobile ? '1fr' : '1.6fr 1fr' }}>
           {/* Buchungen */}
           <window.UI.Card style={{ padding: 0, overflow: 'hidden' }} className="scroll-x">
             <div style={{ display: 'flex', gap: 8, padding: 14, borderBottom: '1.5px solid var(--line)' }}>

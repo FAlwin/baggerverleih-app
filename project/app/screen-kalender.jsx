@@ -377,8 +377,8 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
                         );
                       })}
                       {ts.length === 0 && <div style={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <button onClick={() => openAdd(g.id, day)} style={{ width: 20, height: 20, borderRadius: 10, background: 'var(--paper-3)', border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
-                          <Icon name="plus" size={11} color="var(--muted-2)" />
+                        <button onClick={() => openAdd(g.id, day)} style={{ width: 22, height: 22, borderRadius: 11, background: 'var(--paper-3)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0 }}>
+                          <Icon name="plus" size={12} color="var(--muted-2)" style={{ display: 'block' }} />
                         </button>
                       </div>}
                     </td>

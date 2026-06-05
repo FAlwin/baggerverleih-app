@@ -133,7 +133,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
       </PageHeader>
 
       <div className="content-pad" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 20, alignItems: 'start' }}>
-        <div className="stack" style={{ gap: 16 }}>
+        <div className="stack" style={{ gap: 16, minWidth: 0 }}>
           {/* Prefill-Banner */}
           {pf && (
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', border: '1px solid var(--yellow)', fontSize: 13 }}>
@@ -179,12 +179,14 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Positionen</h2>
             <div className="stack" style={{ gap: 8 }}>
               {pos.map((p, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 32px', gap: 7, alignItems: 'center' }}>
-                  <window.UI.Input value={p.text} onChange={(e) => updatePos(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '8px 10px', fontSize: 13 }} />
-                  <window.UI.Input type="number" value={p.menge} onChange={(e) => updatePos(i, { menge: e.target.value })} title="Menge" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'center' }} />
+                <div key={i} style={mobile
+                  ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 32px', gap: 6, alignItems: 'center' }
+                  : { display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 32px', gap: 7, alignItems: 'center' }}>
+                  <window.UI.Input value={p.text} onChange={(e) => updatePos(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '8px 10px', fontSize: 13, gridColumn: mobile ? '1 / -1' : 'auto' }} />
+                  <window.UI.Input type="number" value={p.menge} onChange={(e) => updatePos(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'center' }} />
                   {/* Einheit: dropdown if this pos has a geraet hint, else text */}
-                  <window.UI.Input value={p.einheit} onChange={(e) => updatePos(i, { einheit: e.target.value })} title="Einheit" style={{ padding: '8px 8px', fontSize: 12.5 }} />
-                  <window.UI.Input type="number" value={p.preis} onChange={(e) => updatePos(i, { preis: e.target.value })} title="Einzelpreis €" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'right' }} />
+                  <window.UI.Input value={p.einheit} onChange={(e) => updatePos(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px 8px', fontSize: 12.5 }} />
+                  <window.UI.Input type="number" value={p.preis} onChange={(e) => updatePos(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'right' }} />
                   <window.UI.IconBtn name="trash" size={15} onClick={() => removePos(i)} title="Entfernen" style={{ width: 32, height: 32 }} />
                 </div>
               ))}
@@ -209,7 +211,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
                 </window.UI.Field>
                 <window.UI.Btn icon="plus" onClick={addFromGeraet} disabled={!pickerEinheit} style={{ flex: '0 0 auto', marginBottom: 0 }}>Hinzufügen</window.UI.Btn>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                 {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
                   <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
                     + {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}
