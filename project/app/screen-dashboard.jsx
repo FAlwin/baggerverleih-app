@@ -44,11 +44,12 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
     ...store.db.angebote.filter((a) => a.status === 'offen' && a.gueltigBis < store.today).map((a) => ({ ic: 'angebot', c: 'var(--open)', t: 'Angebot abgelaufen', s: `${a.id} · gültig bis ${F.fmtDate(a.gueltigBis)}`, go: ['angebote'] })),
   ].slice(0, 4);
 
+  // Jeder Start legt einen Auftrag an – der Auftrag ist die Schaltzentrale.
   const NEU_ITEMS = [
-    { icon: 'rechnung', label: 'Neue Rechnung',  sub: 'Direkt in Rechnung stellen',  go: ['rechnung-neu', { mode: 'rechnung' }] },
-    { icon: 'angebot',  label: 'Neues Angebot',  sub: 'Angebot erstellen & versenden', go: ['rechnung-neu', { mode: 'angebot' }] },
-    { icon: 'kalender', label: 'Maschine buchen', sub: 'Direkt im Kalender eintragen',  go: ['kalender', { neu: 'auftrag' }] },
-    { icon: 'kunden',   label: 'Neuer Kunde',    sub: 'Kundenstamm ergänzen',         go: ['kunden'] },
+    { icon: 'angebot',  label: 'Mit Angebot starten', sub: 'Angebot schreiben – legt einen Auftrag an', go: ['rechnung-neu', { mode: 'angebot' }] },
+    { icon: 'kalender', label: 'Maschine buchen',      sub: 'Direkt im Kalender – legt einen Auftrag an', go: ['kalender', { neu: 'auftrag' }] },
+    { icon: 'rechnung', label: 'Direktrechnung',       sub: 'Sofort abrechnen – legt einen Auftrag an',   go: ['rechnung-neu', { mode: 'rechnung' }] },
+    { icon: 'kunden',   label: 'Neuer Kunde',          sub: 'Kundenstamm ergänzen',                       go: ['kunden'] },
   ];
 
   return (

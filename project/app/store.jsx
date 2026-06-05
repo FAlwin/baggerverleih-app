@@ -84,6 +84,36 @@ function StoreProvider({ children }) {
       return newId;
     },
 
+    // Beleg (Angebot/Rechnung) anlegen UND mit dem Auftrag verknüpfen – alles in EINEM Update
+    // (zuverlässig auch in React-Event-Handlern; keine Abhängigkeit von Rückgabe-IDs über mehrere setDb-Aufrufe).
+    // auftragId wird vom Aufrufer vorab via store.nextId berechnet (für neuen Auftrag) oder ist bekannt.
+    belegAnlegen: ({ kind, auftragId, neuerAuftrag, belegData, anfrageId }) => {
+      setDb((d) => {
+        let auftraege = d.auftraege;
+        if (neuerAuftrag) {
+          auftraege = [...auftraege, {
+            typ: 'vermietung', anfrageId: null, angebotId: null, rechnungId: null,
+            notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00',
+            ...neuerAuftrag, id: auftragId,
+          }];
+        }
+        let rechnungen = d.rechnungen, angebote = d.angebote, belegId;
+        if (kind === 'angebot') {
+          const kr = kreis(d, 'angebot'); belegId = nextId(kr.prefix, d.angebote, kr.start);
+          angebote = [{ ...belegData, id: belegId, auftragId, betrag: sumPos(belegData.positionen), status: 'offen' }, ...d.angebote];
+        } else {
+          const kr = kreis(d, 'rechnung'); belegId = nextId(kr.prefix, d.rechnungen, kr.start);
+          rechnungen = [{ ...belegData, id: belegId, auftragId, betrag: sumPos(belegData.positionen), status: 'offen' }, ...d.rechnungen];
+        }
+        auftraege = auftraege.map((a) => a.id === auftragId
+          ? { ...a, [kind === 'angebot' ? 'angebotId' : 'rechnungId']: belegId, status: kind === 'angebot' ? 'angebot' : 'abgerechnet' }
+          : a);
+        let anfragen = d.anfragen;
+        if (anfrageId) anfragen = anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x);
+        return { ...d, auftraege, rechnungen, angebote, anfragen };
+      });
+    },
+
     addAngebot: (data) => {
       let newId;
       setDb((d) => {

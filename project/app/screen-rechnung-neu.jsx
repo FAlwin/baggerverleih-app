@@ -91,29 +91,26 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
 
   const save = () => {
     const kId = persistKunde();
+    // Jeder Beleg gehört zu einem Auftrag. Ohne Kontext legen wir einen schlanken Auftrag an –
+    // die Auftrags-ID berechnen wir vorab (zuverlässig), Anlegen + Verknüpfen passiert atomar.
+    const N = (store.db.settings && store.db.settings.nummern) || {};
+    const akr = N.auftrag || { prefix: 'AU', start: 1 };
+    const auftragId = params.auftragId || store.nextId(akr.prefix, store.db.auftraege, akr.start);
+    const neuerAuftrag = params.auftragId ? null : {
+      kundeId: kId,
+      geraetId: (isAngebot ? angebotGeraetId : pf?.geraetId) || '',
+      von: (isAngebot ? (angebotVon || datum) : (mietvertrag ? mietVon : datum)),
+      bis: (isAngebot ? (angebotBis || angebotVon || datum) : (mietvertrag ? mietBis : datum)),
+      ort: (isAngebot ? angebotOrt : (pf?.ort || '')),
+    };
     if (isAngebot) {
-      const id = store.addAngebot({
-        kundeId: kId, datum, gueltigBis, positionen: draft.positionen,
-        von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt,
-        anfrageId: params.anfrageId, auftragId: params.auftragId || null,
-      });
-      if (params.anfrageId) store.setAnfrageStatus(params.anfrageId, 'erledigt');
-      // Aus einem Auftrag heraus: Angebot verknüpfen + Auftrag auf 'angebot' setzen → zurück zum Auftrag
-      if (params.auftragId) {
-        store.updateAuftrag(params.auftragId, { angebotId: id, status: 'angebot' });
-        toast('Angebot ' + id + ' erstellt'); nav('auftrag', { id: params.auftragId });
-      } else {
-        toast('Angebot ' + id + ' erstellt'); nav('angebote');
-      }
+      store.belegAnlegen({ kind: 'angebot', auftragId, neuerAuftrag, anfrageId: params.anfrageId,
+        belegData: { kundeId: kId, datum, gueltigBis, positionen: draft.positionen, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt } });
+      toast('Angebot erstellt'); nav('auftrag', { id: auftragId });
     } else {
-      const id = store.addRechnung({ kundeId: kId, datum, faellig, positionen: draft.positionen, auftragId: params.auftragId || null, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null });
-      // Aus einem Auftrag heraus: Rechnung verknüpfen + Auftrag auf 'abgerechnet' → zurück zum Auftrag
-      if (params.auftragId) {
-        store.updateAuftrag(params.auftragId, { rechnungId: id, status: 'abgerechnet' });
-        toast('Rechnung ' + id + ' erstellt'); nav('auftrag', { id: params.auftragId });
-      } else {
-        toast('Rechnung ' + id + ' erstellt'); nav('rechnung', { id });
-      }
+      store.belegAnlegen({ kind: 'rechnung', auftragId, neuerAuftrag,
+        belegData: { kundeId: kId, datum, faellig, positionen: draft.positionen, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null } });
+      toast('Rechnung erstellt'); nav('auftrag', { id: auftragId });
     }
   };
 

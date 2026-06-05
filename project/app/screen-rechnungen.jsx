@@ -63,9 +63,7 @@ window.Screens.rechnungen = function Rechnungen({ nav, params, mobile, onMenu, P
 
   return (
     <>
-      <PageHeader kicker="Verwaltung" title="Rechnungen" mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn icon="plus" onClick={() => nav('rechnung-neu')}>{mobile ? 'Neu' : 'Neue Rechnung'}</window.UI.Btn>
-      </PageHeader>
+      <PageHeader kicker="Übersicht" title="Rechnungen" mobile={mobile} onMenu={onMenu} />
       <div className="content-pad stack" style={{ gap: 16 }}>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center' }}>
           <StatusFilter value={filter} onChange={setFilter} counts={counts} />
@@ -124,7 +122,6 @@ window.Screens.rechnungen = function Rechnungen({ nav, params, mobile, onMenu, P
                       <td><window.Pill status={r.status} /></td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions">
-                          {r.status !== 'bezahlt' && <window.UI.IconBtn name="check" size={16} title="Als bezahlt markieren" style={{ width: 32, height: 32 }} onClick={() => store.markPaid(r.id)} />}
                           <window.UI.IconBtn name="arrowRight" size={16} title="Öffnen" style={{ width: 32, height: 32 }} onClick={() => nav('rechnung', { id: r.id })} />
                         </div>
                       </td>
@@ -144,34 +141,22 @@ window.Screens.rechnungen = function Rechnungen({ nav, params, mobile, onMenu, P
 window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
-  const toast = window.UI.useToast();
   const r = store.db.rechnungen.find((x) => x.id === params.id);
-  const [docKind, setDocKind] = rS('rechnung');
   const [previewRef, scale] = useFitScale(793);
-  const [sigPad, setSigPad] = rS(null); // 'vermieter' | 'mieter' | null
-  const [sigVermieter, setSigVermieter] = rS(null);
-  const [sigMieter, setSigMieter] = rS(null);
 
   if (!r) return <><PageHeader title="Rechnung" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
   const k = store.kundeById(r.kundeId);
   const c = store.db.company;
-
-  const mietvertragDoc = <window.Print.MietvertragDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={`${F.fmtDate(r.datum)} – ${F.fmtDate(r.faellig)}`} signaturVermieter={sigVermieter} signaturMieter={sigMieter} />;
-  const doc = docKind === 'mietvertrag' ? mietvertragDoc : <window.Print.RechnungDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
-  const printDoc = docKind === 'mietvertrag'
-    ? <>{mietvertragDoc}<window.Print.MietbedingungenPage company={c} /></>
-    : doc;
-
-  const print = (kind) => { setDocKind(kind); setTimeout(() => window.print(), 60); };
+  const doc = <window.Print.RechnungDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
 
   return (
     <>
       <PageHeader kicker="Rechnung" title={r.id} mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn variant="ghost" icon="print" onClick={() => print('rechnung')}>{mobile ? '' : 'Drucken / PDF'}</window.UI.Btn>
+        <window.UI.Btn variant="ghost" icon="print" onClick={() => setTimeout(() => window.print(), 60)}>{mobile ? '' : 'Drucken / PDF'}</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '320px 1fr', gap: 20, alignItems: 'start' }}>
-        {/* Aktionen */}
+        {/* Info */}
         <div className="stack" style={{ gap: 16 }}>
           <window.UI.Card style={{ padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -185,36 +170,12 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
               {r.bezahltAm && <div>Bezahlt am: <b style={{ color: 'var(--ok)' }}>{F.fmtDate(r.bezahltAm)}</b></div>}
               {r.ausAngebot && <div>aus Angebot: <b style={{ color: 'var(--ink)' }}>{r.ausAngebot}</b></div>}
             </div>
-          </window.UI.Card>
-
-          <window.UI.Card style={{ padding: 18 }}>
-            <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 12 }}>Aktionen</div>
-            <div className="stack" style={{ gap: 9 }}>
-              {r.status !== 'bezahlt' && <window.UI.Btn variant="okghost" icon="check" onClick={() => { store.markPaid(r.id); toast('Als bezahlt markiert'); }} style={{ width: '100%' }}>Als bezahlt markieren</window.UI.Btn>}
-              {(r.status === 'ueberfaellig' || r.status === 'offen') && <window.UI.Btn variant="danger" icon="alert" onClick={() => { store.setStatus(r.id, 'mahnung'); toast('Mahnung erstellt'); }} style={{ width: '100%' }}>Mahnung erstellen</window.UI.Btn>}
-              <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <window.UI.Btn variant={docKind === 'rechnung' ? 'dark' : 'soft'} size="sm" onClick={() => setDocKind('rechnung')} style={{ flex: 1 }}>Rechnung</window.UI.Btn>
-                <window.UI.Btn variant={docKind === 'mietvertrag' ? 'dark' : 'soft'} size="sm" onClick={() => setDocKind('mietvertrag')} style={{ flex: 1 }}>Mietvertrag</window.UI.Btn>
-              </div>
-              <window.UI.Btn icon="print" onClick={() => print(docKind)} style={{ width: '100%' }}>{docKind === 'mietvertrag' ? 'Mietvertrag' : 'Rechnung'} drucken / PDF</window.UI.Btn>
-              {docKind === 'mietvertrag' && (
-                <>
-                  <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 4 }}>Unterschriften (Übergabe)</div>
-                  <window.UI.Btn variant={sigVermieter ? 'okghost' : 'ghost'} icon={sigVermieter ? 'check' : 'edit'} onClick={() => setSigPad('vermieter')} style={{ width: '100%' }}>
-                    {sigVermieter ? 'Vermieter ✓ (erneut)' : 'Vermieter unterschreiben'}
-                  </window.UI.Btn>
-                  <window.UI.Btn variant={sigMieter ? 'okghost' : 'ghost'} icon={sigMieter ? 'check' : 'edit'} onClick={() => setSigPad('mieter')} style={{ width: '100%' }}>
-                    {sigMieter ? 'Mieter ✓ (erneut)' : 'Mieter unterschreiben'}
-                  </window.UI.Btn>
-                  {sigVermieter && sigMieter && (
-                    <div style={{ padding: '9px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12, color: 'var(--ink)' }}>
-                      ✓ Beide Unterschriften vorhanden · Mietvertrag jetzt drucken / PDF speichern und dem Kunden zusenden.
-                    </div>
-                  )}
-                </>
-              )}
+            <div className="stack" style={{ gap: 9, marginTop: 14 }}>
+              <window.UI.Btn icon="print" onClick={() => setTimeout(() => window.print(), 60)} style={{ width: '100%' }}>Drucken / PDF</window.UI.Btn>
+              {r.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => nav('auftrag', { id: r.auftragId })} style={{ width: '100%' }}>Zum Auftrag öffnen</window.UI.Btn>}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--muted-2)', lineHeight: 1.5 }}>
+              Bezahlt-Status, Mahnung und Mietvertrag verwaltest du im zugehörigen Auftrag.
             </div>
           </window.UI.Card>
         </div>
@@ -227,14 +188,7 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
         </div>
       </div>
 
-      <window.Print.Mount doc={printDoc} />
-      {sigPad && (
-        <window.UI.SignaturPad
-          title={sigPad === 'vermieter' ? 'Unterschrift Vermieter (Julian)' : 'Unterschrift Mieter (' + k.name + ')'}
-          onSave={(dataUrl) => { sigPad === 'vermieter' ? setSigVermieter(dataUrl) : setSigMieter(dataUrl); setSigPad(null); toast('Unterschrift gespeichert'); }}
-          onClose={() => setSigPad(null)}
-        />
-      )}
+      <window.Print.Mount doc={doc} />
     </>
   );
 };

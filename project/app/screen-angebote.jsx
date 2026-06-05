@@ -130,14 +130,32 @@ function EditAngebotModal({ angebot, onSave, onClose }) {
   );
 }
 
-// ---- Main Screen ----
+// Geteilte Bausteine, damit der Auftrag (Schaltzentrale) dieselben Modale nutzt
+window.VersendModal = VersendModal;
+window.EditAngebotModal = EditAngebotModal;
+// Angebot als „versendet" markieren + Kalender-Reservierung anlegen (Workflow-Aktion)
+window.angebotVersenden = function angebotVersenden(store, angebot) {
+  store.setAngebotStatus(angebot.id, 'versendet');
+  if (angebot.von && angebot.geraetId) {
+    const c = store.findConflict(angebot.geraetId, angebot.von, angebot.bis || angebot.von);
+    if (!c) {
+      store.addTermin({
+        id: 'res_' + angebot.id, geraetId: angebot.geraetId, kundeId: angebot.kundeId,
+        von: angebot.von, bis: angebot.bis || angebot.von,
+        vonZeit: angebot.vonZeit || '08:00', bisZeit: angebot.bisZeit || '17:00',
+        ort: angebot.ort || '', quellTyp: 'reservierung', quellId: angebot.id,
+      });
+    }
+  }
+};
+
+// ---- Main Screen (reine Übersicht: ansehen, bearbeiten, drucken, zum Auftrag) ----
 window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
-  const [versendId, setVersendId] = agS(params.versendId || null);
   const [editId, setEditId] = agS(null);
-  const [detailId, setDetailId] = agS(null);
+  const [detailId, setDetailId] = agS(params.openId || null);
   const [printAngebotId, setPrintAngebotId] = agS(null);
   const [filter, setFilter] = agS('aktiv');
 
@@ -174,39 +192,6 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
     return true;
   });
 
-  const convert = (id) => {
-    const rid = store.convertAngebot(id);
-    toast('Angebot in ' + rid + ' umgewandelt');
-    nav('rechnung', { id: rid });
-  };
-
-  const handleSend = (angebot, channel) => {
-    store.setAngebotStatus(angebot.id, 'versendet');
-    // Create calendar reservation if von/bis known
-    if (angebot.von && angebot.geraetId) {
-      const c = store.findConflict(angebot.geraetId, angebot.von, angebot.bis || angebot.von);
-      if (!c) {
-        store.addTermin({
-          id: 'res_' + angebot.id,
-          geraetId: angebot.geraetId,
-          kundeId: angebot.kundeId,
-          von: angebot.von,
-          bis: angebot.bis || angebot.von,
-          vonZeit: angebot.vonZeit || '08:00',
-          bisZeit: angebot.bisZeit || '17:00',
-          ort: angebot.ort || '',
-          quellTyp: 'reservierung',
-          quellId: angebot.id,
-        });
-      }
-    }
-    toast(`Via ${channel} versendet · als Reserviert markiert`);
-    setVersendId(null);
-  };
-
-  const versendAngebot = versendId ? store.db.angebote.find((a) => a.id === versendId) : null;
-  const versendKunde = versendAngebot ? store.kundeById(versendAngebot.kundeId) : null;
-
   // Status-Pill mapping
   const pillFor = (st) => {
     const map = { offen: 'offen', versendet: 'ueberfaellig', angenommen: 'bezahlt', abgelaufen: 'abgelaufen' };
@@ -216,9 +201,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
 
   return (
     <>
-      <PageHeader kicker="Verwaltung" title="Angebote" mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn icon="plus" onClick={() => nav('rechnung-neu', { mode: 'angebot' })}>{mobile ? 'Neu' : 'Neues Angebot'}</window.UI.Btn>
-      </PageHeader>
+      <PageHeader kicker="Übersicht" title="Angebote" mobile={mobile} onMenu={onMenu} />
 
       <div className="content-pad stack" style={{ gap: 16 }}>
         {/* Filter-Tabs */}
@@ -287,16 +270,9 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                         )}
                       </div>
                     </td>
-                    <td>
-                      <div className="row-actions" style={{ opacity: 1, gap: 5 }}>
-                        {(st === 'offen' || st === 'versendet' || st === 'abgelaufen') && (
-                          <window.UI.IconBtn name="edit" size={15} title="Bearbeiten / Verlängern" style={{ width: 32, height: 32 }} onClick={(e) => { e.stopPropagation(); setEditId(a.id); }} />
-                        )}
-                        {(st === 'offen' || st === 'versendet') && (
-                          <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={(e) => { e.stopPropagation(); setVersendId(a.id); }} style={{ fontSize: 12 }}>
-                            {st === 'versendet' ? 'Erneut senden' : 'Versenden'}
-                          </window.UI.Btn>
-                        )}
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="row-actions">
+                        <window.UI.IconBtn name="arrowRight" size={16} title="Öffnen" style={{ width: 32, height: 32 }} onClick={() => setDetailId(a.id)} />
                       </div>
                     </td>
                   </tr>
@@ -315,18 +291,6 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><window.Pill status="bezahlt" label="Angenommen" style={{ transform: 'scale(.85)' }} /> Auftrag öffnen → Rechnung erstellen</span>
         </div>
       </div>
-
-      {versendAngebot && versendKunde && (
-        <VersendModal
-          angebot={versendAngebot}
-          kunde={versendKunde}
-          company={store.db.company}
-          fmtEUR={F.fmtEUR}
-          fmtDate={F.fmtDate}
-          onSend={(ch) => handleSend(versendAngebot, ch)}
-          onClose={() => setVersendId(null)}
-        />
-      )}
 
       {editId && (() => {
         const a = store.db.angebote.find((x) => x.id === editId);
