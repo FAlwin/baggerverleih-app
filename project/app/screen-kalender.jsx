@@ -107,6 +107,13 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
     setModal({ geraetId: geraetId || machines[0]?.id, von: date, bis: date, kundeId: store.db.kunden[0]?.id || '', ort: '', vonZeit: time || '08:00', bisZeit: time ? yToTime(timeToY(time) + PX_PER_HOUR) : '17:00', grund: 'privat', notiz: '' });
   };
 
+  // Bestehende Belegung bearbeiten (gleicher Dialog, Art fix auf 'belegung')
+  const openEditBelegung = (b) => {
+    setConflict(null);
+    setArt('belegung');
+    setModal({ editId: b.id, geraetId: b.geraetId, von: b.von, bis: b.bis, vonZeit: b.vonZeit || '08:00', bisZeit: b.bisZeit || '17:00', ort: b.ort || '', grund: b.grund || 'privat', notiz: b.notiz || '', kundeId: '' });
+  };
+
   // Aus „Aufträge → Neuer Auftrag → Direkt buchen" kommend: Buchungs-Dialog automatisch öffnen
   React.useEffect(() => {
     if (params && params.neu === 'auftrag') openAdd(machines[0]?.id, store.today, null, 'vermietung');
@@ -115,15 +122,17 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
 
   const save = () => {
     if (modal.bis < modal.von) { setConflict({ msg: 'Enddatum liegt vor dem Startdatum.' }); return; }
-    const c = store.findConflict(modal.geraetId, modal.von, modal.bis);
+    const c = store.findConflict(modal.geraetId, modal.von, modal.bis, modal.editId);
     if (c) {
       const belegt = c.kind === undefined && c.grund ? (F.BELEGUNG_GRUND[c.grund]?.label || 'Belegung') : (store.kundeById(c.kundeId)?.name || 'Belegung');
       setConflict({ msg: `Doppelbuchung: ${store.geraetById(modal.geraetId)?.name} ist ${F.fmtDate(c.von)}–${F.fmtDate(c.bis)} bereits belegt (${belegt}).` });
       return;
     }
     if (art === 'belegung') {
-      store.addBelegung({ grund: modal.grund, geraetId: modal.geraetId, von: modal.von, bis: modal.bis, vonZeit: modal.vonZeit, bisZeit: modal.bisZeit, ort: modal.ort, notiz: modal.notiz });
-      toast('Belegung gespeichert'); setModal(null); return;
+      const data = { grund: modal.grund, geraetId: modal.geraetId, von: modal.von, bis: modal.bis, vonZeit: modal.vonZeit, bisZeit: modal.bisZeit, ort: modal.ort, notiz: modal.notiz };
+      if (modal.editId) { store.updateBelegung(modal.editId, data); toast('Belegung aktualisiert'); }
+      else { store.addBelegung(data); toast('Belegung gespeichert'); }
+      setModal(null); return;
     }
     // Vermietung → Auftrag (direkt gebucht)
     let kundeId = modal.kundeId;
@@ -424,7 +433,7 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
       {/* Detail */}
       <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title={detail && detail.kind === 'belegung' ? 'Belegung' : 'Auftrag'} width={440}
         footer={detail && (detail.kind === 'belegung'
-          ? <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteBelegung(detail.id); toast('Belegung gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>
+          ? <><window.UI.Btn variant="danger" icon="trash" onClick={() => { store.deleteBelegung(detail.id); toast('Belegung gelöscht'); setDetail(null); }}>Löschen</window.UI.Btn><window.UI.Btn variant="ghost" icon="edit" onClick={() => { const b = detail; setDetail(null); openEditBelegung(b); }}>Bearbeiten</window.UI.Btn><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn></>
           : <><window.UI.Btn variant="ghost" onClick={() => setDetail(null)}>Schließen</window.UI.Btn><window.UI.Btn icon="arrowRight" onClick={() => { const id = detail.id; setDetail(null); nav('auftrag', { id }); }}>Auftrag öffnen</window.UI.Btn></>)}>
         {detail && (() => {
           const g = store.geraetById(detail.geraetId);
@@ -470,11 +479,12 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
       </window.UI.Modal>
 
       {/* Add modal */}
-      <window.UI.Modal open={!!modal} onClose={() => setModal(null)} title={art === 'belegung' ? 'Maschine blocken' : 'Vermietung buchen'} width={480}
-        footer={<><window.UI.Btn variant="ghost" onClick={() => setModal(null)}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={save}>{art === 'belegung' ? 'Blocken' : 'Buchen'}</window.UI.Btn></>}>
+      <window.UI.Modal open={!!modal} onClose={() => setModal(null)} title={modal && modal.editId ? 'Belegung bearbeiten' : (art === 'belegung' ? 'Maschine blocken' : 'Vermietung buchen')} width={480}
+        footer={<><window.UI.Btn variant="ghost" onClick={() => setModal(null)}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={save}>{modal && modal.editId ? 'Speichern' : (art === 'belegung' ? 'Blocken' : 'Buchen')}</window.UI.Btn></>}>
         {modal && (
           <div className="stack" style={{ gap: 14 }}>
-            {/* Art-Umschalter */}
+            {/* Art-Umschalter — beim Bearbeiten ausgeblendet */}
+            {!modal.editId && (
             <div style={{ display: 'flex', gap: 8 }}>
               {[['vermietung', 'Vermietung (Kunde)'], ['belegung', 'Privat / Wartung']].map(([m, label]) => (
                 <button key={m} onClick={() => { setArt(m); setConflict(null); }}
@@ -484,6 +494,7 @@ window.Screens.kalender = function Kalender({ nav, params = {}, mobile, onMenu, 
                 </button>
               ))}
             </div>
+            )}
             {conflict && <div style={{ display: 'flex', gap: 10, padding: '11px 13px', background: 'var(--danger-wash)', borderRadius: 'var(--r)', color: 'var(--danger)', fontSize: 13 }}><Icon name="alert" size={18} style={{ flex: '0 0 auto' }} />{conflict.msg}</div>}
             <window.UI.Field label="Gerät">
               <window.UI.Select value={modal.geraetId} onChange={(e) => { setModal({ ...modal, geraetId: e.target.value }); setConflict(null); }}>
