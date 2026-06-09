@@ -82,9 +82,11 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 - Badge in Navigation bei neuen Anfragen
 
 ### 3. Kalender (`screen-kalender.jsx`)
-- Monats-/Wochenansicht
-- Buchungen pro Gerät eintragen
-- **Konflikt-Erkennung:** Warnung bei Doppelbuchung desselben Geräts
+- **Stundengenaue Belegungsbalken** (Arbeitstag-Fenster aus `settings.geschaeftszeitVon/Bis`).
+- Desktop: **Monats-Raster** mit Gerätespuren (eine Spur je Gerät) + **Wochen-Plantafel** (Gerät × Tag) mit Drag-to-book.
+- Mobil: durchlaufende **Apple-Style-Monatsliste** + Wochenansicht (Tage als Zeilen, Geräte als Spalten).
+- Zeigt Aufträge (mehrgeräte-aufgefächert), Belegungen (Privat/Wartung) und offene Anfragen; Reservierungen/Anfragen **gestrichelt**.
+- **Konflikt-Erkennung uhrzeitgenau:** Doppelbuchung desselben Geräts wird blockiert; zwei zeitlich getrennte Buchungen am selben Tag sind erlaubt.
 
 ### 4. Rechnungen (`screen-rechnungen.jsx`)
 - Liste aller Rechnungen mit Status: offen / bezahlt / überfällig / Mahnung
@@ -125,11 +127,14 @@ PREISLISTE    // Sonderleistungen: Transport, Reinigung (id, geraet, einheit, pr
 KUNDEN        // id, name, kontakt, street, city, phone, email, typ (Privat|Gewerbe)
 RECHNUNGEN    // id, kundeId, datum, faellig, status, positionen[], betrag, bezahltAm?, auftragId?
 ANGEBOTE      // id, kundeId, datum, gueltigBis, status, positionen[], betrag, auftragId?, von?, bis?, geraetId?, ort?
-AUFTRAEGE     // ZENTRALE KLAMMER (ersetzt TERMINE): id, typ, geraetId, kundeId, von, bis, vonZeit, bisZeit,
-              //   ort, status, anfrageId?, angebotId?, rechnungId?, notiz, mietvertrag?{signaturVermieter,signaturMieter,positionen,datum,gesperrt}
-BELEGUNGEN    // Gerät OHNE Auftrag geblockt (Privat/Wartung): id, grund, geraetId, von, bis, ... (nur Kalender, kein Status/Kunde)
+AUFTRAEGE     // ZENTRALE KLAMMER (ersetzt TERMINE): id, typ, kundeId, ort, status, anfrageId?, angebotId?, rechnungId?, notiz,
+              //   geraete[]{geraetId,von,bis,vonZeit,bisZeit}  ← MEHRGERÄTE (eigener Zeitraum je Gerät),
+              //   primäre Felder geraetId/von/bis/vonZeit/bisZeit sind auf geraete[0] gespiegelt (Abwärtskompat. ~48 Lesestellen),
+              //   mietvertrag?{signaturVermieter,signaturMieter,positionen,datum,gesperrt}
+BELEGUNGEN    // Gerät OHNE Auftrag geblockt (Privat/Wartung): id, grund, geraetId, von, bis, vonZeit, bisZeit, ort, notiz (nur Kalender)
 BUCHUNGEN     // id, datum, art (e|a), kategorie, text, betrag
-ANFRAGEN      // id, datum, name, phone, email, geraetId, von, bis, ort, nachricht, status (neu|in-bearbeitung|erledigt)
+ANFRAGEN      // id, datum, name, phone, email, ort, nachricht, status (neu|in-bearbeitung|erledigt),
+              //   geraete[]{geraetId,von,vonZeit,dauer,einheit,bis,bisZeit}  ← MEHRGERÄTE; primäre Felder gespiegelt
 SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So), nummern{}
 ```
 
@@ -194,7 +199,7 @@ Gewerbebeginn: 01.04.2026
 baggerverleih-app/
 └── project/
     ├── Friesen Baggerverleih.html     ← Haupt-Einstiegspunkt
-    ├── Friesen Baggerverleih - Standalone.html  ← Alles in einer Datei
+    ├── contact.html                   ← Öffentliches Kontakt-/Anfrageformular (Startdatum+Dauer, Mehrgeräte, reservierte Zeiträume gesperrt, ohne WhatsApp)
     ├── app/
     │   ├── data.js                    ← Mock-Daten (Single Source of Truth)
     │   ├── store.jsx                  ← State Management (localStorage)
@@ -250,7 +255,10 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
 **Auftrag = Schaltzentrale (`screen-auftraege.jsx`)**
 - `window.Screens.auftrag` (Detail) führt durch den Flow (`nextStep`), zeigt Beleg-Kacheln
   (Angebot/Mietvertrag/Rechnung/Kalender). Kachel-Überschrift = Button → `DocPreviewModal` (A4-Vorschau).
-- Mietvertrag-Kachel erst aktiv, wenn Angebot **oder** Rechnung existiert.
+- Mietvertrag kann **eigenständig** erstellt werden (auch ohne Angebot); fehlt ein Angebot, wird die Rechnung
+  aus dem Mietvertrag vorbefüllt. Gibt es ein Angebot, fließen dessen Daten in Mietvertrag **und** Rechnung.
+  Alle drei Belege bleiben editierbar; bei beidseitiger MV-Unterschrift werden Angebot + Mietvertrag gesperrt,
+  die Rechnung bleibt editierbar, solange nicht bezahlt/versendet.
 - Status manuell korrigieren: Zurücksetzen → `setAuftragStatusKaskade` (setzt bezahlte Rechnung zurück) +
   Warnung; Überspringen → Warnung. **bezahlt** und **Mahnung** schließen sich aus.
 
@@ -259,9 +267,11 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
   `PageHeader = () => null`. `nav('rechnungen'|'angebote')` wird in `app.jsx` automatisch auf
   `belege` mit `params.tab` umgeleitet. Erstellung läuft nur noch über den Auftrag.
 
-**PDF-Download statt Druck (`print.jsx`)**
-- `window.PDF.download(reactDoc, filename)` rendert das Dokument unsichtbar und erzeugt per **html2pdf**
-  (CDN) eine A4-PDF ohne Druckdialog. Überall „PDF herunterladen" statt `window.print()`.
+**PDF via nativem Druck-Dialog (`print.jsx`)**
+- `window.PDF.download(reactDoc, filename)` rendert das Dokument offscreen in `#__printroot` und ruft
+  `window.print()` auf; per `@media print` wird **nur** dieser Container gedruckt (alles andere ausgeblendet,
+  `@page{size:A4;margin:0}`). Ergebnis: **echte PDF mit auswählbarem/kopierbarem Text** (kein Raster-Bild),
+  Unterschriften sauber gerendert. Button-Label „Drucken / als PDF", Aufräumen via `afterprint`.
 - `Print.RechnungDoc/AngebotDoc/MietvertragDoc/MietbedingungenPage` rendern exakt `210mm × 297mm`.
 
 **Mietvertrag-Unterschrift (`ui.jsx` SignaturPad + store)**
@@ -281,15 +291,17 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
   Verfügbar in Vorschau **und** Kachel. PDF-Anhang muss manuell angehängt werden (kein Backend).
 
 **Weiteres**
-- Konfliktprüfung `store.findConflict`; Angebot zeigt frei/belegt + „nächster freier Start".
+- Konfliktprüfung `store.findConflict(geraetId, von, bis, exceptId, vonZeit?, bisZeit?)`: mehrgeräte-fähig
+  (prüft jede `geraete[]`-Zeile einzeln) und **uhrzeitgenau** (ohne Uhrzeit-Argumente = datumsbasiert, abwärtskompatibel).
+  Angebot zeigt frei/belegt + „nächster freier Start".
 - `normalizeOverdue`: offene Rechnungen mit Fälligkeit < heute werden beim Laden als „überfällig" geführt.
 - Live-A4-Vorschau via `window.useFitScale(793)`.
 
 ### Bekannte Einschränkungen (Prototyp)
 - Kein Backend: alle Daten im localStorage; Versand-PDF wird nicht automatisch angehängt.
 - Babel-Kompilierung im Browser: kein Build-Schritt, langsamer Start, Cache-Busting nötig (s. o.).
-- **Standalone-HTML** (`Friesen Baggerverleih - Standalone.html`) wird NICHT automatisch mitgebaut –
-  vor Weitergabe an Julian separat neu erzeugen. GitHub Pages nutzt die normale HTML mit `app/*.jsx`.
+- **Keine Standalone-HTML mehr** – die frühere Einzeldatei wurde entfernt (nicht mehr benötigt).
+  Auslieferung / GitHub Pages nutzt `Friesen Baggerverleih.html` mit `app/*.jsx` (Cache-Busting via `?v=N`).
 
 ---
 
