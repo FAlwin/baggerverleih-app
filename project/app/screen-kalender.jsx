@@ -261,6 +261,7 @@ window.Screens = window.Screens || {};
       const weeks = [];
       for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
       const LANE_H = 15, LANE_GAP = 4, PAD_TOP = 24;
+      const CELL_H = PAD_TOP + machines.length * (LANE_H + LANE_GAP) + 6;
 
       return (
         <>
@@ -283,18 +284,8 @@ window.Screens = window.Screens || {};
                 {weeks.map((week, wi) => {
                   const firstIdx = week.findIndex((d) => d !== null);
                   const mon = A(week[firstIdx], -firstIdx);
-                  // Pro Gerät die in dieser Woche zeitlich überlappenden Einträge in Unter-Spuren stapeln
-                  const tracks = machines.map((g) => {
-                    const its = itemsForGeraet(g.id).filter((t) => t.von <= A(mon, 6) && t.bis >= mon);
-                    const placed = laneLayout(its, WIN_START, WIN_END);
-                    const n = Math.max(1, ...placed.map((p) => p.lane + 1));
-                    return { g, placed, n };
-                  });
-                  let acc = PAD_TOP;
-                  const tops = tracks.map((tr) => { const o = acc; acc += tr.n * (LANE_H + LANE_GAP); return o; });
-                  const weekHeight = acc + 6;
                   return (
-                    <div key={wi} style={{ position: 'relative', height: weekHeight, borderTop: wi > 0 ? '1px solid var(--line)' : 'none' }}>
+                    <div key={wi} style={{ position: 'relative', height: CELL_H, borderTop: wi > 0 ? '1px solid var(--line)' : 'none' }}>
                       <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
                         {week.map((day, di) => {
                           const isToday = day === store.today;
@@ -307,8 +298,8 @@ window.Screens = window.Screens || {};
                           );
                         })}
                       </div>
-                      {tracks.map((tr, mi) => (
-                        tr.placed.map(({ t, lane }) => {
+                      {machines.map((g, li) => (
+                        itemsForGeraet(g.id).filter((t) => t.von <= A(mon, 6) && t.bis >= mon).map((t) => {
                           const sp = bookingSpanFrac(t, mon, 7);
                           if (!sp) return null;
                           const ap = barAppearance(t);
@@ -316,9 +307,9 @@ window.Screens = window.Screens || {};
                           const wide = widthPct > 12;
                           return (
                             <button key={t._key + 'w' + wi} type="button" onClick={(ev) => { ev.stopPropagation(); setDetail(t); }}
-                              title={`${tr.g.name} · ${ap.name} · ${t.von === t.bis ? '' : F.fmtDate(t.von) + '–' + F.fmtDate(t.bis) + ' · '}${t.vonZeit || WIN_START_T}–${t.bisZeit || WIN_END_T} Uhr`}
+                              title={`${g.name} · ${ap.name} · ${t.von === t.bis ? '' : F.fmtDate(t.von) + '–' + F.fmtDate(t.bis) + ' · '}${t.vonZeit || WIN_START_T}–${t.bisZeit || WIN_END_T} Uhr`}
                               style={{
-                                position: 'absolute', zIndex: 3, top: tops[mi] + lane * (LANE_H + LANE_GAP), height: LANE_H,
+                                position: 'absolute', zIndex: 3, top: PAD_TOP + li * (LANE_H + LANE_GAP), height: LANE_H,
                                 left: `calc(${sp.start * 100}% + ${sp.cutL ? 0 : 2}px)`,
                                 width: `calc(${widthPct}% - ${(sp.cutL ? 0 : 2) + (sp.cutR ? 0 : 2)}px)`,
                                 minWidth: 8, background: ap.background, color: ap.color, border: ap.border,
