@@ -21,6 +21,7 @@ function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR
       : `Bei Fragen oder zur Auftragsbestätigung antworten Sie einfach auf diese Nachricht oder rufen Sie uns an:`;
 
   const msgText = [
+    ...(kind === 'angebot' && b.dringend ? ['🔴 DRINGEND – bitte möglichst kurzfristig zusagen, der Wunschtermin steht bald an.', ''] : []),
     `Hallo ${kunde.name},`,
     ``,
     kopf,
@@ -37,7 +38,7 @@ function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR
     fuss,
     `${company.phone}`,
     ``,
-    `Das Dokument als PDF hängen Sie bitte aus der App an (Button „PDF herunterladen").`,
+    `Das Dokument als PDF hängen Sie bitte aus der App an (Button „Drucken / als PDF").`,
     ``,
     `Mit freundlichen Grüßen`,
     `${company.owner} · ${company.name}`,
@@ -48,20 +49,22 @@ function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR
   const waMsg = encodeURIComponent(msgText);
   const waNum = tel(company.phone);
 
+  // WhatsApp ist der bevorzugte Kanal (Business). Mail/SMS nur als Notfall-Fallback.
+  const waNumber = tel(kunde.whatsapp || kunde.phone);
   const channels = [
+    {
+      label: 'WhatsApp', primary: true,
+      color: '#25D366', textColor: '#fff',
+      icon: 'phone',
+      href: `https://wa.me/${waNumber}?text=${waMsg}`,
+      note: (kunde.whatsapp || kunde.phone) || '(keine WhatsApp-Nummer hinterlegt)',
+    },
     {
       label: 'E-Mail',
       color: '#2B6CB0', textColor: '#fff',
       icon: 'rechnung',
       href: `mailto:${kunde.email || ''}?subject=${subject}&body=${body}`,
       note: kunde.email ? kunde.email : '(keine E-Mail hinterlegt)',
-    },
-    {
-      label: 'WhatsApp',
-      color: '#25D366', textColor: '#fff',
-      icon: 'phone',
-      href: `https://wa.me/${tel(kunde.phone)}?text=${waMsg}`,
-      note: kunde.phone || '(keine Telefonnummer)',
     },
     {
       label: 'SMS / iMessage',
@@ -81,22 +84,29 @@ function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR
           <pre style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', margin: 0 }}>{msgText}</pre>
         </div>
 
-        <div className="kicker" style={{ color: 'var(--muted)' }}>Kanal wählen — Nachricht wird vorausgefüllt</div>
+        <div className="kicker" style={{ color: 'var(--muted)' }}>Bevorzugter Weg — Nachricht ist vorausgefüllt</div>
 
-        <div className="stack" style={{ gap: 10 }}>
-          {channels.map((ch) => (
+        {(() => {
+          const renderCh = (ch, big) => (
             <a key={ch.label} href={ch.href} target="_blank" rel="noopener noreferrer"
               onClick={() => onSend(ch.label)}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', background: ch.color, color: ch.textColor, borderRadius: 'var(--r)', textDecoration: 'none', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
-              <Icon name={ch.icon} size={20} color={ch.textColor} />
+              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: big ? '14px 16px' : '10px 14px', background: ch.color, color: ch.textColor, borderRadius: 'var(--r)', textDecoration: 'none', fontFamily: 'var(--sans)', cursor: 'pointer', opacity: big ? 1 : 0.9 }}>
+              <Icon name={ch.icon} size={big ? 20 : 17} color={ch.textColor} />
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{ch.label}</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>{ch.note}</div>
+                <div style={{ fontWeight: 700, fontSize: big ? 15 : 13.5 }}>{ch.label}{big ? ' · bevorzugt' : ''}</div>
+                <div style={{ fontSize: 12, opacity: 0.85 }}>{ch.note}</div>
               </div>
-              <Icon name="arrowRight" size={18} color={ch.textColor} />
+              <Icon name="arrowRight" size={big ? 18 : 16} color={ch.textColor} />
             </a>
-          ))}
-        </div>
+          );
+          return (
+            <div className="stack" style={{ gap: 10 }}>
+              {renderCh(channels[0], true)}
+              <div className="kicker" style={{ color: 'var(--muted-2)', marginTop: 2 }}>Weitere Wege (Notfall)</div>
+              {channels.slice(1).map((ch) => renderCh(ch, false))}
+            </div>
+          );
+        })()}
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', fontSize: 12.5 }}>
           <Icon name="alert" size={16} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
@@ -140,8 +150,8 @@ function EditAngebotModal({ angebot, onSave, onClose }) {
           <window.UI.Field label="Von"><window.UI.Input type="date" value={draft.von} onChange={(e) => setDraft({ ...draft, von: e.target.value })} /></window.UI.Field>
           <window.UI.Field label="Bis"><window.UI.Input type="date" value={draft.bis} onChange={(e) => setDraft({ ...draft, bis: e.target.value })} /></window.UI.Field>
         </div>
-        <window.UI.Field label="Einsatzort">
-          <window.UI.Input value={draft.ort} onChange={(e) => setDraft({ ...draft, ort: e.target.value })} placeholder="z. B. Baustelle Siegburg" />
+        <window.UI.Field label="Einsatzort (Adresse)">
+          <window.UI.Input value={draft.ort} onChange={(e) => setDraft({ ...draft, ort: e.target.value })} placeholder="z. B. Musterstraße 5, 53797 Lohmar" />
         </window.UI.Field>
       </div>
     </window.UI.Modal>
@@ -175,6 +185,9 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
   const [editId, setEditId] = agS(null);
   const [detailId, setDetailId] = agS(params.openId || null);
   const [filter, setFilter] = agS('aktiv');
+  // Auftrag zum Angebot auflösen (auch ohne auftragId am Beleg) und öffnen
+  const auftragIdOf = (a) => a.auftragId || store.auftragIdByBeleg('angebot', a.id);
+  const openAuftrag = (a) => { const aid = auftragIdOf(a); aid ? nav('auftrag', { id: aid }) : setDetailId(a.id); };
 
   const handleEditSave = (id, patch) => {
     const wasAbgelaufen = store.db.angebote.find((a) => a.id === id)?.gueltigBis < store.today;
@@ -242,7 +255,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                 const k = store.kundeById(a.kundeId);
                 const st = effStatus(a);
                 return (
-                  <button key={a.id} onClick={() => setDetailId(a.id)} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '14px 16px', border: 'none', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                  <button key={a.id} onClick={() => openAuftrag(a)} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '14px 16px', border: 'none', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <div><div style={{ fontWeight: 700, fontSize: 14 }}>{k?.name}</div><div className="num" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{a.id} · {F.fmtDate(a.datum)}</div></div>
@@ -268,7 +281,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                 const st = effStatus(a);
                 const ablauf = st === 'abgelaufen';
                 return (
-                  <tr key={a.id} onClick={() => setDetailId(a.id)} style={{ cursor: 'pointer' }}>
+                  <tr key={a.id} onClick={() => openAuftrag(a)} style={{ cursor: 'pointer' }}>
                     <td className="num" style={{ fontWeight: 600 }}>{a.id}</td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{k?.name}</div>
@@ -289,7 +302,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="row-actions">
-                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => a.auftragId ? nav('auftrag', { id: a.auftragId }) : setDetailId(a.id)}>Auftrag öffnen</window.UI.Btn>
+                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => openAuftrag(a)}>Auftrag öffnen</window.UI.Btn>
                       </div>
                     </td>
                   </tr>
@@ -311,7 +324,7 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
 
       {editId && (() => {
         const a = store.db.angebote.find((x) => x.id === editId);
-        return a ? <EditAngebotModal angebot={a} onSave={(patch) => handleEditSave(editId, patch)} onClose={() => setEditId(null)} /> : null;
+        return a && !a.gesperrt ? <EditAngebotModal angebot={a} onSave={(patch) => handleEditSave(editId, patch)} onClose={() => setEditId(null)} /> : null;
       })()}
 
       {detailId && (() => {
@@ -322,8 +335,8 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
         return (
           <window.UI.Modal open title={`Angebot ${a.id}`} onClose={() => setDetailId(null)} width={500}
             footer={<>
-              <window.UI.Btn variant="ghost" icon="download" onClick={() => window.PDF.download(<window.Print.AngebotDoc angebot={a} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />, 'Angebot_' + a.id)}>PDF herunterladen</window.UI.Btn>
-              {a.auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => { setDetailId(null); nav('auftrag', { id: a.auftragId }); }}>Auftrag öffnen</window.UI.Btn>}
+              <window.UI.Btn variant="ghost" icon="download" onClick={() => window.PDF.download(<window.Print.AngebotDoc angebot={a} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />, 'Angebot_' + a.id)}>Drucken / als PDF</window.UI.Btn>
+              {auftragIdOf(a) && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => { setDetailId(null); nav('auftrag', { id: auftragIdOf(a) }); }}>Auftrag öffnen</window.UI.Btn>}
               <window.UI.Btn variant="ghost" onClick={() => setDetailId(null)}>Schließen</window.UI.Btn>
             </>}>
             <div className="stack" style={{ gap: 12 }}>
@@ -349,8 +362,11 @@ window.Screens.angebote = function Angebote({ nav, params, mobile, onMenu, PageH
                   ))}
                 </div>
               )}
-              {(st === 'offen' || st === 'versendet' || st === 'abgelaufen') && (
+              {(st === 'offen' || st === 'versendet' || st === 'abgelaufen') && !a.gesperrt && (
                 <window.UI.Btn variant="ghost" icon="edit" onClick={() => { setDetailId(null); setEditId(a.id); }} style={{ width: '100%' }}>Bearbeiten / Verlängern</window.UI.Btn>
+              )}
+              {a.gesperrt && (
+                <div style={{ fontSize: 12.5, color: 'var(--muted-2)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="check" size={14} /> Gesperrt – der zugehörige Mietvertrag wurde unterschrieben.</div>
               )}
             </div>
           </window.UI.Modal>

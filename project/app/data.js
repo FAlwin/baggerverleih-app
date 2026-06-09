@@ -22,15 +22,15 @@
 
   // Flotte / Gerätepark — inkl. editierbares Tarif (Einheiten + Preise)
   const FLOTTE = [
-    { id: 'bagger',    name: '1,9t Minibagger', detail: 'Hitachi ZX18-3 CLR · Bj. 2014', kat: 'Maschine',
+    { id: 'bagger',    name: '1,9t Minibagger', detail: 'Hitachi ZX18-3 CLR · Bj. 2014 · ohne Fahrer, inkl. ein Löffel', kat: 'Maschine',
       kuerzel: 'BA', farbe: '#F7C72A',
-      tarif: [{ einheit: 'Stunde', preis: 25 }, { einheit: 'halber Tag (4h)', preis: 70 }, { einheit: 'Tag', preis: 130 }, { einheit: 'Wochenende', preis: 230 }, { einheit: 'Woche', preis: 560 }] },
+      tarif: [{ einheit: 'Tag', preis: 60 }] },
     { id: 'anhaenger', name: 'Plateauanhänger', detail: '2.700 kg GVW · 2×4 m · Auffahrrampen', kat: 'Transport',
       kuerzel: 'PL', farbe: '#2B6CB0',
-      tarif: [{ einheit: 'Stunde', preis: 12 }, { einheit: 'Tag', preis: 45 }, { einheit: 'Wochenende', preis: 80 }, { einheit: 'Woche', preis: 180 }] },
+      tarif: [{ einheit: '4 Stunden', preis: 35 }, { einheit: '8 Stunden', preis: 50 }, { einheit: 'Tag', preis: 60 }] },
     { id: 'ruettler',  name: 'Betonrüttler', detail: 'Betrieb 230 V Stromanschluss', kat: 'Maschine',
       kuerzel: 'RÜ', farbe: '#8B5E3C',
-      tarif: [{ einheit: 'halber Tag (4h)', preis: 18 }, { einheit: 'Tag', preis: 30 }] },
+      tarif: [{ einheit: 'Tag', preis: 20 }] },
     { id: 'tl40',      name: 'Tieflöffel 40 cm', detail: 'Anbaugerät Bagger', kat: 'Anbau',
       kuerzel: 'TL', farbe: '#6B6B66',
       tarif: [{ einheit: 'inklusive', preis: 0 }] },
@@ -42,11 +42,14 @@
       tarif: [{ einheit: 'inklusive', preis: 0 }] },
   ];
 
-  // Sonstige Servicepositionen (Transport, Reinigung — keine Geräte)
+  // Sonstige Servicepositionen (laut Preisliste). Transport: Pauschalen + km-Satz über 30 km.
   const PREISLISTE = [
-    { id: 'p_transport',   geraet: 'Transport / Anlieferung',           einheit: 'pro km',     preis: 1.20 },
-    { id: 'p_transport_p', geraet: 'Transportpauschale Umkreis 15 km',  einheit: 'Pauschale',  preis: 45 },
-    { id: 'p_reinigung',   geraet: 'Reinigungspauschale',               einheit: 'Pauschale',  preis: 25 },
+    { id: 'p_transport_15', geraet: 'Transport bis 15 km',      einheit: 'Pauschale',         preis: 50 },
+    { id: 'p_transport_30', geraet: 'Transport bis 30 km',      einheit: 'Pauschale',         preis: 100 },
+    { id: 'p_transport_km', geraet: 'Transport über 30 km',     einheit: 'pro km (ab 30 km)', preis: 1 },
+    { id: 'p_fahrer',       geraet: '1,9t Bagger mit Fahrer',   einheit: 'pro Stunde',        preis: 25 },
+    { id: 'p_loeffel',      geraet: 'Zusatz-Löffel (ab 2.)',    einheit: 'pro Tag',           preis: 5 },
+    { id: 'p_reinigung',    geraet: 'Reinigungspauschale',      einheit: 'Pauschale',         preis: 100 },
   ];
 
   const KUNDEN = [
@@ -163,6 +166,7 @@
     einsatz:        { label: 'Im Einsatz',      cls: 'open' },
     abgerechnet:    { label: 'Abgerechnet',     cls: 'open' },
     abgeschlossen:  { label: 'Abgeschlossen',   cls: 'ok' },
+    abgelehnt:      { label: 'Abgelehnt',       cls: 'danger' },
     // Auftragstypen (für Belegungen ohne Lebenszyklus)
     vermietung:     { label: 'Vermietung',      cls: 'ok' },
     eigennutzung:   { label: 'Eigennutzung',    cls: 'draft' },
@@ -171,7 +175,7 @@
 
   // Lebenszyklus eines Vermietungs-Auftrags (für die Statuszeile/Stepper)
   // 'einsatz' ist kein manueller Schritt mehr – „läuft gerade" wird aus dem Datum abgeleitet.
-  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'abgerechnet', 'bezahlt', 'abgeschlossen'];
+  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'abgeschlossen', 'abgerechnet', 'bezahlt'];
   const AUFTRAG_TYP = {
     vermietung:   { label: 'Vermietung',   farbe: '#2B6CB0' },
     eigennutzung: { label: 'Eigennutzung', farbe: '#6B6B66' },
@@ -187,6 +191,7 @@
   const SETTINGS = {
     zahlungszielTage: 14,       // Fälligkeit einer Rechnung ab Rechnungsdatum
     angebotGueltigTage: 14,     // Standard-Gültigkeit eines neuen Angebots
+    angebotVorlaufTage: 3,      // Mindest-Vorlauf: so viele Tage vor Arbeitsbeginn sollte ein Angebot spätestens raus
     geschaeftszeitVon: 7,       // Kalender-Wochenansicht: erste Stunde
     geschaeftszeitBis: 19,      // Kalender-Wochenansicht: letzte Stunde
     // Vermiet-Wochentage (Index 0=Sonntag … 6=Samstag). Abgewählte Tage:

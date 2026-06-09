@@ -109,7 +109,7 @@ function Sidebar({ active = 'dashboard', variant = 'A', onNav }) {
       <div style={{ padding: '14px 16px', borderTop: '1px solid var(--ink-line)', fontSize: 11.5, color: 'var(--on-dark-muted)' }}>
         <div style={{ fontWeight: 600, color: 'var(--on-dark)', fontSize: 12.5 }}>{C.owner}</div>
         <div style={{ marginTop: 2 }}>{C.city}</div>
-        <div className="kicker" style={{ marginTop: 8, color: 'var(--yellow)', fontSize: 9 }}>§19 UStG · Kleinunternehmer</div>
+        <div className="kicker" style={{ marginTop: 8, color: 'var(--yellow)', fontSize: 9 }}>§19 UStG · Kleinunternehmer · PDF-Fix aktiv ✓</div>
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button onClick={() => window.__exportDB && window.__exportDB()} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--on-dark-muted)', font: 'inherit', fontSize: 11, cursor: 'pointer', padding: 0, opacity: 0.8 }} title="Alle Daten als Backup-Datei sichern">
             <Icon name="download" size={13} /> Daten sichern

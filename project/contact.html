@@ -4,6 +4,11 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Anfrage stellen — Friesen Bau- &amp; Mietservice</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<meta name="theme-color" content="#141414"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="Friesen"/>
 <link rel="stylesheet" href="app/theme.css"/>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -91,32 +96,31 @@
             <input id="name" name="name" type="text" placeholder="Vor- und Nachname" required autocomplete="name"/>
           </div>
           <div class="field">
-            <label for="phone">Telefon <span>*</span></label>
-            <input id="phone" name="phone" type="tel" placeholder="0152 …" required autocomplete="tel"/>
+            <label for="phone">Telefonnummer <span>*</span></label>
+            <input id="phone" name="phone" type="tel" placeholder="z. B. 0152 27918523" required autocomplete="tel"/>
           </div>
         </div>
         <div class="field" style="margin-bottom:16px">
-          <label for="email">E-Mail</label>
-          <input id="email" name="email" type="email" placeholder="name@beispiel.de" autocomplete="email"/>
+          <label for="email">E-Mail <span>*</span></label>
+          <input id="email" name="email" type="email" placeholder="name@beispiel.de" required autocomplete="email"/>
         </div>
         <div class="field" style="margin-bottom:16px">
-          <label for="geraet">Gewünschtes Gerät <span>*</span></label>
-          <select id="geraet" name="geraet" required>
-            <option value="">— bitte wählen —</option>
-          </select>
+          <label>Gewünschte Geräte <span>*</span></label>
+          <div id="geraeteRows"></div>
+          <button type="button" id="addGeraet" style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border:1px dashed var(--ink);border-radius:8px;background:transparent;cursor:pointer;font:inherit;font-size:13px;font-weight:600;color:var(--ink)">+ Weiteres Gerät</button>
         </div>
-        <div class="form-grid" style="margin-bottom:16px">
-          <div class="field">
-            <label for="von">Gewünschter Start <span>*</span></label>
-            <input id="von" name="von" type="date" required/>
-          </div>
-          <div class="field">
-            <label for="bis">Bis (optional)</label>
-            <input id="bis" name="bis" type="date"/>
+        <div class="field" style="margin-bottom:16px">
+          <label>Verfügbarkeit <span id="calHint" style="font-weight:400;color:var(--muted)">– tippe einen freien (grünen) Tag an, um den Start zu wählen</span></label>
+          <div id="calWrap" style="border:1px solid #E2E2DD;border-radius:10px;padding:12px;background:#fff;font-size:12px">Bitte zuerst ein Gerät wählen.</div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#666;margin-top:8px">
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#C8E6C9;vertical-align:-1px"></span> frei</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FFCDD2;vertical-align:-1px"></span> belegt</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#FFF59D;vertical-align:-1px"></span> reserviert</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#E0E0E0;vertical-align:-1px"></span> geschlossen</span>
           </div>
         </div>
         <div class="field" style="margin-bottom:16px">
-          <label for="ort">Einsatzort <span>*</span></label>
+          <label for="ort">Einsatzort (Adresse) <span>*</span></label>
           <input id="ort" name="ort" type="text" placeholder="z. B. Musterstraße 5, 53797 Lohmar" required autocomplete="street-address"/>
         </div>
         <div class="field" style="margin-bottom:24px">
@@ -140,11 +144,6 @@
         </div>
         <h2>Anfrage eingegangen!</h2>
         <p>Wir haben deine Anfrage erhalten und melden uns schnellstmöglich bei dir.</p>
-        <a id="waLink" href="#" target="_blank" class="wa-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-          Via WhatsApp bestätigen
-        </a>
-        <p style="color:var(--muted);font-size:13px;margin-top:14px">Optional: Mit WhatsApp schicken wir dir und Julian direkt eine Nachricht.</p>
       </div>
     </div>
   </div>
@@ -164,57 +163,205 @@ const GERAETE_DEFAULT = [
 ];
 function loadGeraete() {
   try {
-    const db = JSON.parse(localStorage.getItem('friesen_db_v2') || '{}');
+    const db = JSON.parse(localStorage.getItem('friesen_db_v4') || '{}');
     const fl = (db.flotte || []).filter(g => g.kat === 'Maschine' || g.kat === 'Transport');
     return fl.length ? fl : GERAETE_DEFAULT;
   } catch(e) { return GERAETE_DEFAULT; }
 }
 const geraete = loadGeraete();
-const sel = document.getElementById('geraet');
-geraete.forEach(g => {
-  const o = document.createElement('option');
-  o.value = g.id; o.textContent = g.name; sel.appendChild(o);
-});
 
-// WhatsApp number (Julian's number)
-const WA_NUMBER = '4915227918523';
+// ---- Gerätabhängige Mietdauer (Startdatum + Dauer + Einheit → Enddatum) ----
+function geraetById(id){ return geraete.find(g => g.id === id); }
+// Einheiten je nach Tarif des Geräts: bietet das Gerät Stunden-Tarife, gibt es 'Stunden'; sonst nur 'Tage'.
+function verfuegbareEinheiten(g){
+  const tar = (g && g.tarif) || [];
+  const hatStunden = tar.some(t => /stunde/i.test(t.einheit));
+  const hatTage = tar.some(t => /tag/i.test(t.einheit));
+  const out = [];
+  if (hatTage || !hatStunden) out.push('Tage');
+  if (hatStunden) out.push('Stunden');
+  return out.length ? out : ['Tage'];
+}
+function addDaysIso(iso, k){ const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d+k); const p = x => String(x).padStart(2,'0'); return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate()); }
+// Enddatum berechnen – identisch zur App ('Anfrage erstellen'): geschlossene Wochentage zählen bei Tagen nicht mit.
+function berechneEnde(von, vonZeit, menge, einheit){
+  const n = Math.max(1, Number(menge) || 1);
+  if (!von) return { bis: von, bisZeit: vonZeit || '17:00' };
+  const db = calDB();
+  const mw = db.settings && db.settings.mietWochentage;
+  const istMiettag = (iso) => { if (!Array.isArray(mw)) return true; return mw[new Date(iso+'T00:00:00').getDay()] !== false; };
+  if (einheit === 'Stunden') {
+    const [h, m] = (vonZeit || '08:00').split(':').map(Number);
+    const total = h*60 + m + n*60;
+    const extraDays = Math.floor(total/(24*60));
+    const rest = ((total % (24*60)) + 24*60) % (24*60);
+    const p = (x) => String(x).padStart(2,'0');
+    return { bis: addDaysIso(von, extraDays), bisZeit: p(Math.floor(rest/60)) + ':' + p(rest%60) };
+  }
+  let cur = von;
+  for (let i=0; i<n; i++){ cur = addDaysIso(cur, 1); let guard=0; while(!istMiettag(cur) && guard<31){ cur = addDaysIso(cur, 1); guard++; } }
+  return { bis: cur, bisZeit: '17:00' };
+}
+function fmtDE(iso){ if(!iso) return '—'; const [y,m,d]=iso.split('-'); return d+'.'+m+'.'+y; }
+// Prüft, ob im gewünschten Zeitraum [von..bis] ein belegter/reservierter Tag liegt (→ nicht buchbar)
+function bereichKonflikt(gid, von, bis){
+  if (!gid || !von || !bis) return null;
+  const db = calDB();
+  const now = new Date(); const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
+  let cur = von;
+  for (let guard=0; guard<400 && cur<=bis; guard++){
+    const st = dayStatus(db, gid, cur, todayIso);
+    if (st === 'belegt' || st === 'reserviert') return { tag: cur, status: st };
+    cur = addDaysIso(cur, 1);
+  }
+  return null;
+}
+// ---- Mehrere Geräte je Anfrage: dynamische Zeilen + geteilter Verfügbarkeitskalender ----
+let rows = [{ geraetId: (geraete[0] && geraete[0].id) || '', von: '', vonZeit: '08:00', dauer: '1', einheit: 'Tage' }];
+let activeRow = 0;
+let activeBis = '';
+function rowEinheiten(gid){ return verfuegbareEinheiten(geraetById(gid)); }
+function renderRows(){
+  const wrap = document.getElementById('geraeteRows');
+  wrap.innerHTML = '';
+  rows.forEach((r, i) => {
+    const opts = rowEinheiten(r.geraetId);
+    if (opts.indexOf(r.einheit) < 0) r.einheit = opts[0];
+    const ende = (r.von && r.dauer) ? berechneEnde(r.von, r.vonZeit, r.dauer, r.einheit) : null;
+    const konflikt = ende ? bereichKonflikt(r.geraetId, r.von, ende.bis) : null;
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid '+(i===activeRow?'#F7C72A':'#E2E2DD')+';border-radius:10px;padding:12px;margin-bottom:10px;background:'+(i===activeRow?'#FFFDF2':'#fff')+';cursor:pointer';
+    card.addEventListener('click', () => { if (activeRow!==i){ activeRow=i; renderRows(); renderCal(); } });
+    let h = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">';
+    h += '<select class="r-geraet" style="flex:1;padding:10px;border:1px solid #E2E2DD;border-radius:8px;font:inherit">'+geraete.map(g=>'<option value="'+g.id+'"'+(g.id===r.geraetId?' selected':'')+'>'+g.name+'</option>').join('')+'</select>';
+    if (rows.length>1) h += '<button type="button" class="r-del" title="Entfernen" style="flex:0 0 auto;width:40px;height:40px;border:1px solid #E2E2DD;border-radius:8px;background:#fff;cursor:pointer;font-size:15px">✕</button>';
+    h += '</div><div class="form-grid">';
+    h += '<div class="field"><label>Start *</label><input class="r-von" type="date" value="'+(r.von||'')+'"/></div>';
+    h += '<div class="field" style="'+(r.einheit==='Stunden'?'':'display:none')+'"><label>Startuhrzeit</label><input class="r-vonzeit" type="time" value="'+(r.vonZeit||'08:00')+'"/></div>';
+    h += '</div><div class="form-grid">';
+    h += '<div class="field"><label>Dauer *</label><input class="r-dauer" type="number" min="1" step="1" value="'+(r.dauer||'1')+'"/></div>';
+    h += '<div class="field"><label>Einheit *</label><select class="r-einheit">'+opts.map(o=>'<option value="'+o+'"'+(o===r.einheit?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
+    h += '</div>';
+    if (ende && konflikt) h += '<div style="font-size:13px;color:#C62828;font-weight:600">✗ Nicht verfügbar – am '+fmtDE(konflikt.tag)+' '+(konflikt.status==='belegt'?'belegt':'reserviert')+'. Bitte anderen Zeitraum.</div>';
+    else if (ende) h += '<div style="font-size:13px;color:#666">Ende: '+fmtDE(ende.bis)+(r.einheit==='Stunden'?' · '+ende.bisZeit+' Uhr':'')+'</div>';
+    card.innerHTML = h;
+    card.querySelector('.r-geraet').addEventListener('change', (e)=>{ r.geraetId=e.target.value; const o=rowEinheiten(r.geraetId); if(o.indexOf(r.einheit)<0) r.einheit=o[0]; activeRow=i; renderRows(); renderCal(); });
+    card.querySelector('.r-von').addEventListener('change', (e)=>{ r.von=e.target.value; activeRow=i; renderRows(); renderCal(); });
+    const vz=card.querySelector('.r-vonzeit'); if(vz) vz.addEventListener('change',(e)=>{ r.vonZeit=e.target.value; renderRows(); renderCal(); });
+    card.querySelector('.r-dauer').addEventListener('change',(e)=>{ r.dauer=e.target.value; activeRow=i; renderRows(); renderCal(); });
+    card.querySelector('.r-einheit').addEventListener('change',(e)=>{ r.einheit=e.target.value; renderRows(); renderCal(); });
+    const del=card.querySelector('.r-del'); if(del) del.addEventListener('click',(e)=>{ e.stopPropagation(); rows.splice(i,1); if(activeRow>=rows.length) activeRow=rows.length-1; renderRows(); renderCal(); });
+    wrap.appendChild(card);
+  });
+  const ar = rows[activeRow]||{};
+  const e = (ar.von && ar.dauer) ? berechneEnde(ar.von, ar.vonZeit, ar.dauer, ar.einheit) : null;
+  activeBis = e ? e.bis : '';
+  const hint = document.getElementById('calHint');
+  if (hint) hint.textContent = rows.length>1 ? '– freien Tag für das markierte Gerät antippen' : '– tippe einen freien (grünen) Tag an, um den Start zu wählen';
+}
+document.getElementById('addGeraet').addEventListener('click', () => {
+  rows.push({ geraetId:(geraete[0]&&geraete[0].id)||'', von:'', vonZeit:'08:00', dauer:'1', einheit:'Tage' });
+  activeRow = rows.length-1; renderRows(); renderCal();
+});
+renderRows();
+
+// ---- Verfügbarkeits-/Buchungskalender (3 Monate, klickbar) ----
+const MONATE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const WTAGE = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+const FARBE = { frei:['#C8E6C9','#2E7D32'], belegt:['#FFCDD2','#C62828'], reserviert:['#FFF59D','#8a6d00'], geschlossen:['#E0E0E0','#888'], past:['#F2F2F0','#bbb'] };
+function isoOf(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function calDB(){ try { return JSON.parse(localStorage.getItem('friesen_db_v4')||'{}'); } catch(e){ return {}; } }
+function dayStatus(db, gid, iso, todayIso){
+  if (iso < todayIso) return 'past';
+  const mw = db.settings && db.settings.mietWochentage;
+  const dt = new Date(iso+'T00:00:00'); const wd = dt.getDay(); // 0=So
+  if (Array.isArray(mw) && mw[wd] === false) return 'geschlossen';
+  let belegt=false, reserviert=false;
+  const trifft = (item, useBis) => { const gs = (item.geraete && item.geraete.length) ? item.geraete : [item]; return gs.some(x => x.geraetId===gid && x.von && iso>=x.von && iso<=(useBis ? (x.bis||x.von) : x.bis)); };
+  (db.auftraege||[]).forEach(a => { if (a.status!=='abgelehnt' && trifft(a, true)) { (['anfrage','angebot'].indexOf(a.status)>=0) ? reserviert=true : belegt=true; } });
+  (db.belegungen||[]).forEach(b => { if (b.geraetId===gid && iso>=b.von && iso<=b.bis) belegt=true; });
+  (db.angebote||[]).forEach(o => { if (o.geraetId===gid && o.von && o.status==='offen' && iso>=o.von && iso<=(o.bis||o.von)) reserviert=true; });
+  (db.anfragen||[]).forEach(an => { if ((an.status==='neu'||an.status==='in-bearbeitung') && trifft(an, true)) reserviert=true; });
+  return belegt ? 'belegt' : reserviert ? 'reserviert' : 'frei';
+}
+let calOffset = 0; // 0 = aktueller Monat; nur vorwärts ab dem aktuellen Monat
+function renderCal(){
+  const wrap = document.getElementById('calWrap');
+  const ar = rows[activeRow] || {};
+  const gid = ar.geraetId;
+  if (!gid) { wrap.innerHTML = 'Bitte zuerst ein Gerät wählen.'; return; }
+  const db = calDB();
+  const now = new Date(); const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
+  const selVon = ar.von || '';
+  const selBis = activeBis || selVon;
+  const d0 = new Date(now.getFullYear(), now.getMonth()+calOffset, 1);
+  const y = d0.getFullYear(), m = d0.getMonth();
+  const days = new Date(y, m+1, 0).getDate();
+  const lead = (d0.getDay()+6)%7; // Mo=0
+  let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+    + '<button type="button" id="calPrev" '+(calOffset<=0?'disabled':'')+' style="width:30px;height:30px;border:1px solid #E2E2DD;border-radius:6px;background:#fff;cursor:'+(calOffset<=0?'default':'pointer')+';opacity:'+(calOffset<=0?'0.4':'1')+'">‹</button>'
+    + '<div style="flex:1;text-align:center;font-weight:700;font-size:13px">'+MONATE[m]+' '+y+'</div>'
+    + '<button type="button" id="calNext" style="width:30px;height:30px;border:1px solid #E2E2DD;border-radius:6px;background:#fff;cursor:pointer">›</button>'
+    + '</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
+  WTAGE.forEach(w => { html += '<div style="text-align:center;font-size:10px;color:#999;font-weight:600">'+w+'</div>'; });
+  for (let i=0;i<lead;i++) html += '<div></div>';
+  for (let d=1; d<=days; d++){
+    const iso = isoOf(y,m,d);
+    const st = dayStatus(db, gid, iso, todayIso);
+    const c = FARBE[st]; const clickable = st==='frei';
+    const isSel = !!selVon && iso>=selVon && iso<=selBis;
+    html += '<div data-iso="'+iso+'" data-st="'+st+'" title="'+iso+' · '+st+'" style="text-align:center;font-size:12px;line-height:30px;height:30px;border-radius:4px;background:'+c[0]+';color:'+c[1]+';cursor:'+(clickable?'pointer':'default')+';font-weight:'+(isSel?'800':'500')+';outline:'+(isSel?'2px solid #141414':'none')+'">'+d+'</div>';
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
+  const prev = document.getElementById('calPrev'); if (prev) prev.addEventListener('click', () => { if (calOffset>0){ calOffset--; renderCal(); } });
+  const next = document.getElementById('calNext'); if (next) next.addEventListener('click', () => { calOffset++; renderCal(); });
+  wrap.querySelectorAll('[data-st="frei"]').forEach(el => {
+    el.addEventListener('click', () => {
+      const iso = el.getAttribute('data-iso');
+      if (rows[activeRow]) rows[activeRow].von = iso;
+      renderRows();
+      renderCal();
+    });
+  });
+}
+renderCal();
 
 document.getElementById('anfrage').addEventListener('submit', function(e) {
   e.preventDefault();
   const f = e.target;
-  const data = {
-    name: f.name.value.trim(), phone: f.phone.value.trim(),
-    email: f.email.value.trim(),
-    geraetId: f.geraet.value, geraetName: f.geraet.options[f.geraet.selectedIndex]?.text || '',
-    von: f.von.value, bis: f.bis.value,
-    ort: f.ort.value.trim(), nachricht: f.nachricht.value.trim(),
-  };
-  if (!data.name || !data.phone || !data.geraetId || !data.von || !data.ort || !data.nachricht) {
-    alert('Bitte alle Pflichtfelder ausfüllen.'); return;
+  const basis = { name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(), ort: f.ort.value.trim(), nachricht: f.nachricht.value.trim() };
+  if (!basis.name || !basis.phone || !basis.email || !basis.ort || !basis.nachricht) { alert('Bitte alle Pflichtfelder ausfüllen.'); return; }
+  if (!rows.length || rows.some(r => !r.geraetId || !r.von)) { alert('Bitte für jedes Gerät Start wählen.'); return; }
+  // Pro Gerät Ende berechnen + belegten/reservierten Zeitraum sperren
+  const geraeteOut = [];
+  for (const r of rows) {
+    const ende = berechneEnde(r.von, r.vonZeit, r.dauer, r.einheit);
+    const konflikt = bereichKonflikt(r.geraetId, r.von, ende.bis);
+    if (konflikt) {
+      const gname = (geraetById(r.geraetId)||{}).name || 'Gerät';
+      alert(gname + ': Der gewünschte Zeitraum enthält einen ' + (konflikt.status === 'belegt' ? 'belegten' : 'reservierten') + ' Tag (' + fmtDE(konflikt.tag) + '). Bitte anderen Zeitraum wählen.');
+      return;
+    }
+    geraeteOut.push({ geraetId: r.geraetId, von: r.von, vonZeit: r.einheit === 'Stunden' ? (r.vonZeit||'08:00') : '08:00', dauer: Number(r.dauer)||1, einheit: r.einheit||'Tage', bis: ende.bis, bisZeit: ende.bisZeit });
   }
 
-  // Save to shared localStorage
+  // Save to shared localStorage (Mehrgeräte: geraete[] + gespiegelte Primärfelder fürs erste Gerät)
   try {
-    const raw = localStorage.getItem('friesen_db_v2');
+    const raw = localStorage.getItem('friesen_db_v4');
     const db = raw ? JSON.parse(raw) : {};
     if (!db.anfragen) db.anfragen = [];
+    const g0 = geraeteOut[0];
     db.anfragen.unshift({
       id: 'anf' + Date.now(), datum: new Date().toISOString().slice(0,10),
-      name: data.name, phone: data.phone, email: data.email,
-      geraetId: data.geraetId, von: data.von, bis: data.bis || data.von,
-      ort: data.ort, nachricht: data.nachricht, status: 'neu',
+      name: basis.name, phone: basis.phone, kontaktweg: 'formular', email: basis.email,
+      geraete: geraeteOut,
+      geraetId: g0.geraetId, von: g0.von, vonZeit: g0.vonZeit, dauer: g0.dauer, einheit: g0.einheit, bis: g0.bis, bisZeit: g0.bisZeit,
+      ort: basis.ort, nachricht: basis.nachricht, status: 'neu',
     });
-    localStorage.setItem('friesen_db_v2', JSON.stringify(db));
+    localStorage.setItem('friesen_db_v4', JSON.stringify(db));
   } catch(err) { console.warn('localStorage:', err); }
-
-  // Build WhatsApp message
-  const msg = encodeURIComponent(
-    '🚜 Neue Anfrage – Friesen Bau- und Mietservice\n\n' +
-    '👤 ' + data.name + '\n📞 ' + data.phone + (data.email ? '\n📧 ' + data.email : '') + '\n\n' +
-    '🔧 Gerät: ' + data.geraetName + '\n📅 Zeitraum: ' + data.von + (data.bis && data.bis !== data.von ? ' – ' + data.bis : '') + '\n' +
-    '📍 Ort: ' + data.ort + '\n\n💬 ' + data.nachricht
-  );
-  document.getElementById('waLink').href = 'https://wa.me/' + WA_NUMBER + '?text=' + msg;
 
   // Show success
   document.getElementById('formWrap').style.display = 'none';

@@ -14,11 +14,77 @@ function normalizeOverdue(db) {
   return db;
 }
 
+// Rückverknüpfung: jeder Beleg (Angebot/Rechnung) kennt seinen Auftrag.
+// Nötig für „Auftrag öffnen", da die Seed-/Alt-Belege diese ID teils nicht tragen.
+function backfillAuftragId(db) {
+  if (!Array.isArray(db.auftraege)) return db;
+  const setOn = (list, id, auftragId) => {
+    if (!id || !Array.isArray(list)) return;
+    const item = list.find((x) => x.id === id);
+    if (item && !item.auftragId) item.auftragId = auftragId;
+  };
+  db.auftraege.forEach((a) => {
+    setOn(db.angebote, a.angebotId, a.id);
+    setOn(db.rechnungen, a.rechnungId, a.id);
+  });
+  return db;
+}
+
+// Mehrgeräte-Auftrag: ein Auftrag kann mehrere Geräte-Buchungen (geraete[]) mit je eigenem Zeitraum haben.
+// Die Primärfelder (geraetId/von/bis/vonZeit/bisZeit) werden aus geraete[] gespiegelt – so bleiben alle
+// bestehenden Anzeigen (Liste, Dashboard, Flotte) lauffähig, ohne geraete[] kennen zu müssen.
+function syncAuftragMirror(a) {
+  const gs = Array.isArray(a.geraete) ? a.geraete.filter((g) => g && g.geraetId) : [];
+  if (!gs.length) return a;
+  const vons = gs.map((g) => g.von).filter(Boolean).sort();
+  const bisse = gs.map((g) => g.bis).filter(Boolean).sort();
+  return {
+    ...a,
+    geraetId: gs[0].geraetId,
+    von: vons[0] || a.von,
+    bis: bisse[bisse.length - 1] || a.bis,
+    vonZeit: gs[0].vonZeit || a.vonZeit || '08:00',
+    bisZeit: gs[gs.length - 1].bisZeit || a.bisZeit || '17:00',
+  };
+}
+// Einzelnen Auftrag absichern: hat er kein geraete[], aus den Primärfeldern eines bauen; danach spiegeln.
+function ensureGeraete(a) {
+  if (Array.isArray(a.geraete) && a.geraete.length) return syncAuftragMirror(a);
+  const entry = { geraetId: a.geraetId, von: a.von, bis: a.bis, vonZeit: a.vonZeit || '08:00', bisZeit: a.bisZeit || '17:00' };
+  if (a.preis != null) entry.preis = a.preis;
+  return syncAuftragMirror({ ...a, geraete: a.geraetId ? [entry] : [] });
+}
+// Migration: Altauftrag (einzelnes geraetId/von/bis) → geraete[]. Bereits migrierte: nur Spiegelung auffrischen.
+function normalizeAuftraege(db) {
+  if (!Array.isArray(db.auftraege)) return db;
+  db.auftraege = db.auftraege.map(ensureGeraete);
+  return db;
+}
+
+// Mehrgeräte-Anfrage: anfrage.geraete[] mit Start/Dauer/Einheit je Gerät; Primärfelder gespiegelt (Kalender/Verfügbarkeit).
+function syncAnfrageMirror(a) {
+  const gs = Array.isArray(a.geraete) ? a.geraete.filter((g) => g && g.geraetId) : [];
+  if (!gs.length) return a;
+  const vons = gs.map((g) => g.von).filter(Boolean).sort();
+  const bisse = gs.map((g) => g.bis || g.von).filter(Boolean).sort();
+  return { ...a, geraetId: gs[0].geraetId, von: vons[0] || a.von, bis: bisse[bisse.length - 1] || a.bis, vonZeit: gs[0].vonZeit || a.vonZeit, bisZeit: gs[gs.length - 1].bisZeit || a.bisZeit };
+}
+function ensureAnfrageGeraete(a) {
+  if (Array.isArray(a.geraete) && a.geraete.length) return syncAnfrageMirror(a);
+  const entry = { geraetId: a.geraetId, von: a.von, vonZeit: a.vonZeit || '08:00', dauer: a.dauer || 1, einheit: a.einheit || 'Tage', bis: a.bis || a.von, bisZeit: a.bisZeit || '17:00' };
+  return syncAnfrageMirror({ ...a, geraete: a.geraetId ? [entry] : [] });
+}
+function normalizeAnfragen(db) {
+  if (!Array.isArray(db.anfragen)) return db;
+  db.anfragen = db.anfragen.map(ensureAnfrageGeraete);
+  return db;
+}
+
 function seedDB() {
   const F = window.FRIESEN;
   // tiefe Kopie der Seed-Daten
   const clone = (x) => JSON.parse(JSON.stringify(x));
-  return normalizeOverdue({
+  return backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue({
     company: clone(F.COMPANY),
     flotte: clone(F.FLOTTE),
     preisliste: clone(F.PREISLISTE),
@@ -30,7 +96,7 @@ function seedDB() {
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
     settings: clone(F.SETTINGS),
-  });
+  }))));
 }
 
 function loadDB() {
@@ -44,7 +110,7 @@ function loadDB() {
       db.settings = { ...JSON.parse(JSON.stringify(F.SETTINGS)), ...(db.settings || {}) };
       db.settings.nummern = { ...JSON.parse(JSON.stringify(F.SETTINGS.nummern)), ...(db.settings.nummern || {}) };
       if (!Array.isArray(db.settings.mietWochentage)) db.settings.mietWochentage = JSON.parse(JSON.stringify(F.SETTINGS.mietWochentage));
-      return normalizeOverdue(db);
+      return backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue(db))));
     }
   } catch (e) { /* ignore */ }
   return seedDB();
@@ -79,10 +145,32 @@ function StoreProvider({ children }) {
 
   const sumPos = (pos) => (pos || []).reduce((a, p) => a + (p.menge || 0) * (p.preis || 0), 0);
 
-  // Doppelbuchung prüfen: gibt kollidierende Belegung (Auftrag ODER Block) zurück oder null
-  const findConflict = useCallback((geraetId, von, bis, exceptId) => {
-    const hit = (t) => t.geraetId === geraetId && t.id !== exceptId && von <= t.bis && bis >= t.von;
-    return db.auftraege.find(hit) || (db.belegungen || []).find(hit) || null;
+  // Doppelbuchung prüfen: gibt kollidierende Belegung (Auftrag ODER Block) zurück oder null.
+  // Mehrgeräte-fähig: jede Geräte-Buchung eines Auftrags wird einzeln gegen geraetId/Zeitraum geprüft.
+  // Uhrzeitgenau (abwärtskompatibel): werden vonZeit/bisZeit weggelassen, gilt der ganze Tag
+  //   (00:00–23:59) → exakt das alte, rein datumsbasierte Verhalten. Mit Uhrzeiten dürfen sich
+  //   zwei Buchungen am selben Tag (z. B. 07–11 und 13–17 Uhr) ohne Konflikt nebeneinander legen.
+  const toAbsMin = (iso, time) => {
+    if (!iso) return NaN;
+    const [y, m, d] = iso.split('-').map(Number);
+    const dayNo = Math.round(new Date(y, m - 1, d).getTime() / 86400000);
+    const [h, mi] = (time || '00:00').split(':').map(Number);
+    return dayNo * 1440 + h * 60 + mi;
+  };
+  const findConflict = useCallback((geraetId, von, bis, exceptId, vonZeit, bisZeit) => {
+    const aS = toAbsMin(von, vonZeit || '00:00');
+    const aE = toAbsMin(bis, bisZeit || '23:59');
+    const hits = (eVon, eBis, eVonZeit, eBisZeit) => {
+      if (eVon == null || eBis == null) return false;
+      const s = toAbsMin(eVon, eVonZeit || '00:00'), e = toAbsMin(eBis, eBisZeit || '23:59');
+      return s < aE && aS < e;
+    };
+    for (const a of db.auftraege) {
+      if (a.id === exceptId) continue;
+      const entries = (Array.isArray(a.geraete) && a.geraete.length) ? a.geraete : [a];
+      if (entries.some((e) => e.geraetId === geraetId && hits(e.von, e.bis, e.vonZeit, e.bisZeit))) return a;
+    }
+    return (db.belegungen || []).find((t) => t.geraetId === geraetId && t.id !== exceptId && hits(t.von, t.bis, t.vonZeit, t.bisZeit)) || null;
   }, [db.auftraege, db.belegungen]);
 
   // ---- Mutationen ----
@@ -107,11 +195,11 @@ function StoreProvider({ children }) {
       setDb((d) => {
         let auftraege = d.auftraege;
         if (neuerAuftrag) {
-          auftraege = [...auftraege, {
+          auftraege = [...auftraege, ensureGeraete({
             typ: 'vermietung', anfrageId: null, angebotId: null, rechnungId: null,
             notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00',
             ...neuerAuftrag, id: auftragId,
-          }];
+          })];
         }
         let rechnungen = d.rechnungen, angebote = d.angebote, belegId;
         if (kind === 'angebot') {
@@ -179,17 +267,52 @@ function StoreProvider({ children }) {
       let newId;
       setDb((d) => {
         const kr = kreis(d, 'auftrag'); newId = nextId(kr.prefix, d.auftraege, kr.start);
-        const a = {
+        const a = ensureGeraete({
           typ: 'vermietung', anfrageId: null, angebotId: null, rechnungId: null,
           notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'reserviert',
           ...data, id: newId,
-        };
+        });
         return { ...d, auftraege: [...d.auftraege, a] };
       });
       return newId;
     },
-    updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, ...patch } : a) })),
+    updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? ensureGeraete({ ...a, ...patch }) : a) })),
+    // ---- Mehrgeräte je Auftrag ----
+    // Geräte-Buchung hinzufügen (Konfliktprüfung erfolgt im UI vor dem Aufruf). Mirror wird neu gespiegelt.
+    auftragGeraetAdd: (auftragId, entry) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) =>
+      a.id === auftragId ? syncAuftragMirror({ ...a, geraete: [...(a.geraete || []), entry] }) : a) })),
+    auftragGeraetUpdate: (auftragId, index, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) =>
+      a.id === auftragId ? syncAuftragMirror({ ...a, geraete: (a.geraete || []).map((g, i) => i === index ? { ...g, ...patch } : g) }) : a) })),
+    auftragGeraetRemove: (auftragId, index) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => {
+      if (a.id !== auftragId) return a;
+      const geraete = (a.geraete || []).filter((_, i) => i !== index);
+      return geraete.length ? syncAuftragMirror({ ...a, geraete }) : { ...a, geraete };
+    }) })),
     setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Auftrag abschließen: Rückgabeprotokoll festhalten, Status „abgeschlossen" +
+    // automatisch ins Geräte-Logbuch übertragen (Eintrag + Betriebsstunden aktualisieren).
+    auftragAbschliessen: (id, rueckgabe) => setDb((d) => {
+      const auf = d.auftraege.find((a) => a.id === id);
+      const stamp = { ...(rueckgabe || {}), datum: (rueckgabe && rueckgabe.datum) || today };
+      const auftraege = d.auftraege.map((a) => a.id === id ? { ...a, status: 'abgeschlossen', rueckgabe: stamp } : a);
+      let flotte = d.flotte;
+      if (auf && auf.geraetId) {
+        const kunde = d.kunden.find((k) => k.id === auf.kundeId);
+        const maengel = stamp.zustand === 'maengel';
+        const eintrag = {
+          id: 'log_' + Date.now(), typ: 'rueckgabe', datum: stamp.datum, auftragId: id,
+          text: `Rückgabe${kunde ? ' – ' + kunde.name : ''}: ${maengel ? 'Mängel' : 'i. O.'}${maengel && stamp.mangel ? ' (' + stamp.mangel + ')' : ''}, ${stamp.betankung === 'nachtanken' ? 'Nachtanken nötig' : 'vollgetankt'}${stamp.notiz ? ' · ' + stamp.notiz : ''}`,
+          stunden: stamp.stunden || '', mangel: maengel ? (stamp.mangel || '') : '', fotos: [],
+        };
+        flotte = d.flotte.map((g) => g.id === auf.geraetId
+          ? { ...g, betriebsstunden: stamp.stunden || g.betriebsstunden, protokoll: [eintrag, ...(g.protokoll || [])] }
+          : g);
+      }
+      return { ...d, auftraege, flotte };
+    }),
+    // Geräte-Logbuch: manuelle Einträge (Mangel/Reparatur/Notiz)
+    geraetProtokollAdd: (geraetId, entry) => setDb((d) => ({ ...d, flotte: d.flotte.map((g) => g.id === geraetId ? { ...g, protokoll: [{ id: 'log_' + Date.now(), datum: today, fotos: [], ...entry }, ...(g.protokoll || [])] } : g) })),
+    geraetProtokollDelete: (geraetId, logId) => setDb((d) => ({ ...d, flotte: d.flotte.map((g) => g.id === geraetId ? { ...g, protokoll: (g.protokoll || []).filter((e) => e.id !== logId) } : g) })),
     // Status setzen + nachfolgende Schritte konsistent zurücksetzen.
     // Wird der Auftrag vor 'bezahlt' zurückgesetzt, wird eine bereits bezahlte Rechnung wieder offen.
     setAuftragStatusKaskade: (id, status) => setDb((d) => {
@@ -203,25 +326,42 @@ function StoreProvider({ children }) {
       }
       return { ...d, rechnungen, auftraege: d.auftraege.map((x) => x.id === id ? { ...x, status } : x) };
     }),
-    // Mietvertrag: eine Partei unterschreibt. Sind beide Unterschriften da → Dokument sperren (unveränderlich).
-    mietvertragSign: (auftragId, who, dataUrl) => setDb((d) => ({
-      ...d,
-      auftraege: d.auftraege.map((a) => {
+    // Mietvertrag: eine Partei unterschreibt. Sind beide Unterschriften da → Mietvertrag UND das verknüpfte
+    // Angebot sperren (read-only). Die Rechnung bleibt bewusst editierbar (z. B. für Nachberechnungen).
+    mietvertragSign: (auftragId, who, dataUrl) => setDb((d) => {
+      let lockAngebotId = null;
+      const auftraege = d.auftraege.map((a) => {
         if (a.id !== auftragId) return a;
-        const g = a.geraet ? a.geraet : null;
         const prev = a.mietvertrag || {};
         if (prev.gesperrt) return a; // bereits gesperrt – keine Änderung
         const mv = { ...prev, datum: prev.datum || today };
         if (who === 'v') mv.signaturVermieter = dataUrl;
         if (who === 'm') mv.signaturMieter = dataUrl;
-        // Positionen-Snapshot beim ersten Unterschreiben festhalten
+        // Vermieter-Unterschrift automatisch aus den Einstellungen übernehmen, falls dort hinterlegt
+        if (!mv.signaturVermieter && d.company && d.company.signaturVermieter) mv.signaturVermieter = d.company.signaturVermieter;
+        // Inhalt beim ersten Unterschreiben festhalten (falls nicht zuvor bearbeitet) – Vertrag wird unveränderlich.
         if (!mv.positionen) {
           const r = a.rechnungId ? d.rechnungen.find((x) => x.id === a.rechnungId) : null;
           const ang = a.angebotId ? d.angebote.find((x) => x.id === a.angebotId) : null;
           mv.positionen = (r && r.positionen) || (ang && ang.positionen) || null;
         }
-        if (mv.signaturVermieter && mv.signaturMieter) mv.gesperrt = true;
+        if (mv.von == null) mv.von = a.von || null;
+        if (mv.bis == null) mv.bis = a.bis || null;
+        if (mv.signaturVermieter && mv.signaturMieter) { mv.gesperrt = true; lockAngebotId = a.angebotId || null; }
         return { ...a, mietvertrag: mv };
+      });
+      // Verknüpftes Angebot mitsperren, sobald der Vertrag beidseitig unterschrieben ist
+      const angebote = lockAngebotId ? d.angebote.map((x) => x.id === lockAngebotId ? { ...x, gesperrt: true } : x) : d.angebote;
+      return { ...d, auftraege, angebote };
+    }),
+    // Mietvertrag-Inhalt eigenständig bearbeiten (Positionen, Zeitraum). Nur solange nicht gesperrt.
+    mietvertragUpdate: (auftragId, patch) => setDb((d) => ({
+      ...d,
+      auftraege: d.auftraege.map((a) => {
+        if (a.id !== auftragId) return a;
+        const prev = a.mietvertrag || {};
+        if (prev.gesperrt) return a; // unterschrieben & gesperrt – unveränderlich
+        return { ...a, mietvertrag: { ...prev, datum: prev.datum || today, ...patch } };
       }),
     })),
     // Kunde hat ein versendetes Angebot angenommen → Auftrag fest buchen, Angebot abhaken
@@ -284,6 +424,20 @@ function StoreProvider({ children }) {
     addPreisliste: (data) => setDb((d) => ({ ...d, preisliste: [...d.preisliste, { ...data, id: 'pl_' + Date.now() }] })),
     deletePreisliste: (id) => setDb((d) => ({ ...d, preisliste: d.preisliste.filter((p) => p.id !== id) })),
     setAngebotStatus: (id, status) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Rechnung bearbeiten (Positionen/Zeitraum/Datum). Betrag wird bei Positions-Änderung neu berechnet.
+    updateRechnung: (id, patch) => setDb((d) => ({ ...d, rechnungen: d.rechnungen.map((r) => {
+      if (r.id !== id) return r;
+      const next = { ...r, ...patch };
+      if (patch.positionen) next.betrag = sumPos(patch.positionen);
+      return next;
+    }) })),
+    // Versand festhalten (Datum + Kanal) – für Angebot, Rechnung und Mietvertrag (am Auftrag).
+    belegVersendet: (kind, id, kanal) => setDb((d) => {
+      const stamp = { versendetAm: today, versendetUeber: kanal || null };
+      if (kind === 'rechnung') return { ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, ...stamp } : r) };
+      if (kind === 'mietvertrag') return { ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, mietvertrag: { ...(a.mietvertrag || {}), ...stamp } } : a) };
+      return { ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...stamp } : a) };
+    }),
     updateAngebot: (id, patch) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     addTerminFromAngebot: (angebotId, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort) => {
       setDb((d) => {
@@ -297,18 +451,20 @@ function StoreProvider({ children }) {
       });
     },
     updateBuchung: (id, patch) => setDb((d) => ({ ...d, buchungen: d.buchungen.map((b) => b.id === id ? { ...b, ...patch } : b) })),
-    addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [{ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }, ...d.anfragen] })),
+    addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [ensureAnfrageGeraete({ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }), ...d.anfragen] })),
     // Anfrage annehmen → schlanken Auftrag (Status 'anfrage') anlegen, Kunde ggf. neu, Anfrage erledigt.
     // IDs werden vom Aufrufer vorab via store.nextId berechnet; alles atomar in EINEM Update.
     annehmenAnfrage: ({ anfrageId, auftragId, kundeId, neuerKunde, auftrag }) => {
       setDb((d) => {
         let kunden = d.kunden, kId = kundeId;
         if (neuerKunde) { kId = neuerKunde.id; kunden = [...d.kunden, neuerKunde]; }
-        const a = { typ: 'vermietung', anfrageId, angebotId: null, rechnungId: null, notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'anfrage', ...auftrag, id: auftragId, kundeId: kId };
+        const a = ensureGeraete({ typ: 'vermietung', anfrageId, angebotId: null, rechnungId: null, notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'anfrage', ...auftrag, id: auftragId, kundeId: kId });
         return { ...d, kunden, auftraege: [...d.auftraege, a], anfragen: d.anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x) };
       });
     },
     setAnfrageStatus: (id, status) => setDb((d) => ({ ...d, anfragen: d.anfragen.map((a) => a.id === id ? { ...a, status } : a) })),
+    // Anfrage ablehnen: Grund + Datum festhalten (Datensatz bleibt erhalten, keine Löschung).
+    ablehnenAnfrage: (id, grund) => setDb((d) => ({ ...d, anfragen: d.anfragen.map((a) => a.id === id ? { ...a, status: 'abgelehnt', ablehnungsgrund: grund || '', abgelehntAm: today } : a) })),
     deleteAnfrage: (id) => setDb((d) => ({ ...d, anfragen: d.anfragen.filter((a) => a.id !== id) })),
     addBuchung: (data) => setDb((d) => ({ ...d, buchungen: [{ ...data, id: 'b' + Date.now() }, ...d.buchungen] })),
     deleteBuchung: (id) => setDb((d) => ({ ...d, buchungen: d.buchungen.filter((b) => b.id !== id) })),
@@ -368,6 +524,12 @@ function StoreProvider({ children }) {
     kundeById: (id) => db.kunden.find((k) => k.id === id),
     geraetById: (id) => db.flotte.find((g) => g.id === id),
     auftragById: (id) => db.auftraege.find((a) => a.id === id),
+    // Auftrag zu einem Beleg finden – auch wenn der Beleg keine auftragId trägt (über angebotId/rechnungId)
+    auftragIdByBeleg: (kind, belegId) => {
+      const key = kind === 'angebot' ? 'angebotId' : 'rechnungId';
+      const a = db.auftraege.find((x) => x[key] === belegId);
+      return a ? a.id : null;
+    },
     belegungById: (id) => (db.belegungen || []).find((b) => b.id === id),
     rechnungById: (id) => db.rechnungen.find((r) => r.id === id),
     angebotById: (id) => db.angebote.find((a) => a.id === id),

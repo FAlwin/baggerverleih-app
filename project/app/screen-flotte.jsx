@@ -73,17 +73,78 @@ function GeraetModalForm({ init, onSave, onClose }) {
   );
 }
 
+// ---- Geräte-Logbuch: Betriebsstunden, Historie, Mängel/Reparaturen/Notizen ----
+function GeraetDokuModal({ geraet, store, onClose }) {
+  const F = window.FRIESEN;
+  const toast = window.UI.useToast();
+  const g = geraet;
+  const [stunden, setStunden] = flS(g.betriebsstunden || '');
+  const [typ, setTyp] = flS('mangel');
+  const [text, setText] = flS('');
+  const TYP = { rueckgabe: { label: 'Rückgabe', c: 'var(--ok)' }, mangel: { label: 'Mangel', c: 'var(--danger)' }, reparatur: { label: 'Reparatur', c: 'var(--warn)' }, notiz: { label: 'Notiz', c: 'var(--muted-2)' } };
+  const log = g.protokoll || [];
+  const addEntry = () => { if (!text.trim()) return; store.geraetProtokollAdd(g.id, { typ, text: text.trim() }); setText(''); toast('Eintrag gespeichert'); };
+  const saveStunden = () => { store.updateGeraet(g.id, { betriebsstunden: stunden }); toast('Betriebsstunden aktualisiert'); };
+  return (
+    <window.UI.Modal open title={`Logbuch · ${g.name}`} onClose={onClose} width={560}
+      footer={<window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>}>
+      <div className="stack" style={{ gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+          <window.UI.Field label="Aktuelle Betriebsstunden" style={{ flex: 1 }}>
+            <window.UI.Input value={stunden} onChange={(e) => setStunden(e.target.value)} placeholder="z. B. 1240 h" />
+          </window.UI.Field>
+          <window.UI.Btn icon="check" onClick={saveStunden}>Speichern</window.UI.Btn>
+        </div>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Eintrag hinzufügen</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <window.UI.Field label="Art" style={{ flex: '0 0 130px' }}>
+              <window.UI.Select value={typ} onChange={(e) => setTyp(e.target.value)}>
+                <option value="mangel">Mangel</option>
+                <option value="reparatur">Reparatur</option>
+                <option value="notiz">Notiz</option>
+              </window.UI.Select>
+            </window.UI.Field>
+            <window.UI.Field label="Beschreibung" style={{ flex: '1 1 200px', minWidth: 160 }}>
+              <window.UI.Input value={text} onChange={(e) => setText(e.target.value)} placeholder="z. B. Ölwechsel fällig" onKeyDown={(e) => { if (e.key === 'Enter') addEntry(); }} />
+            </window.UI.Field>
+            <window.UI.Btn icon="plus" onClick={addEntry} style={{ flex: '0 0 auto', marginBottom: 0 }}>Hinzufügen</window.UI.Btn>
+          </div>
+          <button disabled title="Foto-Upload kommt mit dem Server" style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted-2)', background: 'var(--paper-3)', border: '1px dashed var(--line-2)', borderRadius: 'var(--r)', padding: '6px 10px', cursor: 'not-allowed', fontFamily: 'var(--sans)' }}><Icon name="download" size={14} /> Foto hinzufügen (mit Server)</button>
+        </div>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Historie &amp; Dokumentation</div>
+          {log.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Noch keine Einträge. Rückgaben aus Aufträgen erscheinen hier automatisch.</div>}
+          <div className="stack" style={{ gap: 8 }}>
+            {log.map((e) => { const t = TYP[e.typ] || TYP.notiz; return (
+              <div key={e.id} style={{ display: 'flex', gap: 10, padding: '9px 11px', border: '1px solid var(--line-2)', borderRadius: 'var(--r)', alignItems: 'flex-start' }}>
+                <span style={{ flex: '0 0 auto', fontSize: 10.5, fontWeight: 700, color: '#fff', background: t.c, borderRadius: 3, padding: '2px 6px', marginTop: 1 }}>{t.label}</span>
+                <div style={{ flex: 1, fontSize: 13 }}>
+                  <div>{e.text}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{F.fmtDate(e.datum)}{e.stunden ? ' · ' + e.stunden : ''}{e.auftragId ? ' · ' + e.auftragId : ''}</div>
+                </div>
+                {e.typ !== 'rueckgabe' && <window.UI.IconBtn name="trash" size={14} title="Löschen" onClick={() => store.geraetProtokollDelete(g.id, e.id)} style={{ width: 28, height: 28 }} />}
+              </div>
+            ); })}
+          </div>
+        </div>
+      </div>
+    </window.UI.Modal>
+  );
+}
+
 window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
   const [editing, setEditing] = flS(null);
   const [addNew, setAddNew] = flS(false);
+  const [doku, setDoku] = flS(null);
   const [editPL, setEditPL] = flS(null);       // preisliste item being edited
   const [newPL, setNewPL] = flS(false);
   const [plDraft, setPlDraft] = flS({ geraet: '', einheit: '', preis: 0 });
   const today = store.today;
-  const bookedToday = (gid) => store.db.termine.find((t) => t.geraetId === gid && today >= t.von && today <= t.bis);
+  const bookedToday = (gid) => store.db.termine.find((t) => { const gs = (Array.isArray(t.geraete) && t.geraete.length) ? t.geraete : [t]; return gs.some((g) => g.geraetId === gid && today >= g.von && today <= g.bis); });
 
   const save = (g) => { g.id ? store.updateGeraet(g.id, g) : store.addGeraet(g); toast('Gespeichert'); setEditing(null); setAddNew(false); };
 
@@ -114,6 +175,10 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
               ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--warn)' }} /> heute vermietet</span>
               : <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--ok)' }} /> verfügbar</span>)}
             {!bookable && <span style={{ fontSize: 12, color: 'var(--muted)' }}>inklusive beim Bagger</span>}
+            {g.betriebsstunden && <span style={{ fontSize: 12, color: 'var(--muted)' }}>· {g.betriebsstunden}</span>}
+            <button onClick={() => setDoku(g)} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '5px 10px', cursor: 'pointer' }}>
+              <Icon name="file" size={14} /> Logbuch{g.protokoll && g.protokoll.length ? ` (${g.protokoll.length})` : ''}
+            </button>
           </div>
           {g.tarif && g.tarif.length > 0 && (
             <div style={{ marginTop: 12, borderTop: '1px solid var(--paper-3)', paddingTop: 12 }}>
@@ -204,6 +269,7 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
       {(editing || addNew) && (
         <GeraetModalForm init={editing || null} onSave={save} onClose={() => { setEditing(null); setAddNew(false); }} />
       )}
+      {doku && <GeraetDokuModal geraet={store.geraetById(doku.id) || doku} store={store} onClose={() => setDoku(null)} />}
     </>
   );
 };

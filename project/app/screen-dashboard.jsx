@@ -8,7 +8,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
   const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   const days = F.WEEK;
   const machines = ['bagger', 'anhaenger', 'ruettler'];
-  const bookingAt = (gid, day) => store.db.termine.find((t) => t.geraetId === gid && day >= t.von && day <= t.bis);
+  const bookingAt = (gid, day) => store.db.termine.find((t) => { const gs = (Array.isArray(t.geraete) && t.geraete.length) ? t.geraete : [t]; return gs.some((g) => g.geraetId === gid && day >= g.von && day <= g.bis); });
   const shortK = (id) => store.kundeById(id).name.replace(/ (GmbH|GbR)$/, '').split(' ').slice(-1)[0];
   // Kurzer Gerätename für die Matrix (letztes sinnvolles Wort)
   const matrixName = (g) => {
@@ -46,15 +46,13 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
 
   // Rückgabe-Erinnerung: laufende Vermietungen, die heute oder in den nächsten Tagen zurückkommen
   const rueckgaben = store.db.auftraege
-    .filter((a) => ['reserviert', 'abgerechnet'].includes(a.status) && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
+    .filter((a) => a.status === 'reserviert' && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
     .sort((a, b) => a.bis.localeCompare(b.bis));
 
-  // Jeder Start legt einen Auftrag an – der Auftrag ist die Schaltzentrale.
+  // Alles läuft über den Auftrag → nur zwei Aktionen: Auftrag erstellen oder Gerät blocken.
   const NEU_ITEMS = [
-    { icon: 'angebot',  label: 'Mit Angebot starten', sub: 'Angebot schreiben – legt einen Auftrag an', go: ['rechnung-neu', { mode: 'angebot' }] },
-    { icon: 'kalender', label: 'Maschine buchen',      sub: 'Direkt im Kalender – legt einen Auftrag an', go: ['kalender', { neu: 'auftrag' }] },
-    { icon: 'rechnung', label: 'Direktrechnung',       sub: 'Sofort abrechnen – legt einen Auftrag an',   go: ['rechnung-neu', { mode: 'rechnung' }] },
-    { icon: 'kunden',   label: 'Neuer Kunde',          sub: 'Kundenstamm ergänzen',                       go: ['kunden'] },
+    { icon: 'file',   label: 'Auftrag erstellen', sub: 'Angebot, Buchung oder Direktrechnung', go: ['auftraege', { neu: 1 }] },
+    { icon: 'flotte', label: 'Gerät blocken',     sub: 'Maschine für Privat / Wartung sperren', go: ['kalender', { neu: 'belegung' }] },
   ];
 
   return (

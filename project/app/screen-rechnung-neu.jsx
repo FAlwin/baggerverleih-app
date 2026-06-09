@@ -28,13 +28,15 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
 
   const [datum, setDatum] = nS(store.today);
   const [faellig, setFaellig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
-  const [gueltigBis, setGueltig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.angebotGueltigTage) || 14));
+  // gueltigBis wird unten automatisch berechnet (Einstellung + Mindest-Vorlauf vor Arbeitsbeginn).
   const [mietvertrag, setMV] = nS(false);
   const [mietVon, setMietVon] = nS(pf?.von || store.today);
   const [mietBis, setMietBis] = nS(pf?.bis || window.addDays(store.today, 1));
 
   // Positionen — aus Anfrage vorausfüllen (im Angebot übernimmt das die Tagespreis-Automatik)
   const initPos = () => {
+    // Vorbefüllung aus Mietvertrag (oder anderem Beleg): explizit übergebene Positionen haben Vorrang
+    if (pf?.positionen && pf.positionen.length) return pf.positionen.map((p) => ({ ...p }));
     if (mode === 'angebot') return [];
     if (!pf?.geraetId) return [];
     const g = store.db.flotte.find((x) => x.id === pf.geraetId);
@@ -51,6 +53,16 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const [dauerEinheit, setDauerEinheit] = nS('Tage');
   const angebotEnde = window.berechneEnde(angebotVon, angebotVonZeit, dauer, dauerEinheit);
   const angebotBis = angebotEnde.bis;
+
+  // Gültig bis automatisch: Standard = heute + Einstellung; aber spätestens „Vorlauf"-Tage vor dem
+  // Wunschbeginn (damit der Kunde rechtzeitig zusagen kann). Greift die Verkürzung → dringend.
+  const _vorlauf = (store.db.settings && store.db.settings.angebotVorlaufTage) || 0;
+  const _gTage = (store.db.settings && store.db.settings.angebotGueltigTage) || 14;
+  const gueltigNormal = window.addDays(store.today, _gTage);
+  const gueltigCap = (isAngebot && angebotVon) ? window.addDays(angebotVon, -_vorlauf) : null;
+  const gueltigBis = (gueltigCap && gueltigCap < gueltigNormal) ? gueltigCap : gueltigNormal;
+  const gueltigGekuerzt = !!(gueltigCap && gueltigCap < gueltigNormal);
+  const dringend = isAngebot && (gueltigGekuerzt || gueltigBis <= store.today);
   const [angebotGeraetId, setAngebotGeraetId] = nS(pf?.geraetId || '');
   const [angebotOrt, setAngebotOrt] = nS(pf?.ort || '');
 
@@ -73,6 +85,9 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const [pickerGeraet, setPickerGeraet] = nS('');
   const [pickerEinheit, setPickerEinheit] = nS('');
   const selectedGeraet = nM(() => store.db.flotte.find((g) => g.id === pickerGeraet), [pickerGeraet, store.db.flotte]);
+  // Kategorien: echte Geräte (Dropdown) getrennt von Anbaugeräten & Zubehör (Buttons)
+  const echteGeraete = nM(() => store.db.flotte.filter((g) => g.kat !== 'Anbau'), [store.db.flotte]);
+  const anbauGeraete = nM(() => store.db.flotte.filter((g) => g.kat === 'Anbau'), [store.db.flotte]);
   const einheitOptions = nM(() => {
     if (!selectedGeraet || !selectedGeraet.tarif) return [];
     return selectedGeraet.tarif.filter((t) => t.preis > 0 || t.einheit === 'inklusive');
@@ -86,6 +101,14 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     setPickerGeraet(''); setPickerEinheit('');
   };
 
+  // Anbaugerät/Zubehör als Position übernehmen (erster sinnvoller Tarif: bezahlt oder 'inklusive')
+  const addAnbau = (gid) => {
+    const g = store.db.flotte.find((x) => x.id === gid);
+    if (!g) return;
+    const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0] || { einheit: 'inklusive', preis: 0 };
+    setPos((arr) => [...arr, { text: g.name, einheit: tar.einheit, menge: 1, preis: tar.preis }]);
+  };
+
   const addService = (pid) => {
     const p = store.db.preisliste.find((x) => x.id === pid);
     if (!p) return;
@@ -96,8 +119,9 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
 
   // Tagespreis × Dauer: im Angebot automatisch eine Position aus Gerät + Dauer (Tage) vorbefüllen.
   // Manuell bearbeitete Positionen (auto:false) bleiben erhalten.
+  const hasSeededPos = !!(pf && pf.positionen && pf.positionen.length);
   nE(() => {
-    if (!isAngebot) return;
+    if (!isAngebot || hasSeededPos) return; // Bei vorbefüllten Positionen (z.B. Mehrgeräte-Auftrag) keine Auto-Position
     const g = store.db.flotte.find((x) => x.id === angebotGeraetId);
     const t = g && g.tarif && (g.tarif.find((r) => r.einheit === 'Tag') || g.tarif.find((r) => r.preis > 0));
     setPos((arr) => {
@@ -107,6 +131,14 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     });
   }, [angebotGeraetId, dauer, dauerEinheit, isAngebot]);
   const removePos = (i) => setPos((arr) => arr.filter((_, j) => j !== i));
+  // Position verschieben (Reihenfolge ändern). Verschobene Positionen gelten als manuell (auto:false).
+  const movePos = (i, dir) => setPos((arr) => {
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return arr;
+    const c = arr.map((p) => ({ ...p, auto: false }));
+    const tmp = c[i]; c[i] = c[j]; c[j] = tmp;
+    return c;
+  });
   const total = pos.reduce((a, p) => a + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
 
   const kundeObj = neuerKunde ? { ...nk, id: '__neu' } : store.kundeById(kundeId);
@@ -129,6 +161,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     if (isAngebot) {
       if (konflikt && !confirm(`Der Zeitraum ist belegt (${konflikt.id || 'anderer Eintrag'}). Angebot trotzdem anlegen?`)) return;
       if (angebotVon && window.istMiettag && !window.istMiettag(angebotVon) && !confirm('Das Startdatum fällt auf einen Tag, an dem nicht vermietet wird. Trotzdem fortfahren?')) return;
+      // Gültigkeit wird automatisch begrenzt (siehe oben); bei verkürzter Gültigkeit Angebot als „dringend" markieren.
     }
     const kId = persistKunde();
     // Jeder Beleg gehört zu einem Auftrag. Ohne Kontext legen wir einen schlanken Auftrag an –
@@ -145,7 +178,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     };
     if (isAngebot) {
       store.belegAnlegen({ kind: 'angebot', auftragId, neuerAuftrag, anfrageId: params.anfrageId,
-        belegData: { kundeId: kId, datum, gueltigBis, positionen: draft.positionen, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt } });
+        belegData: { kundeId: kId, datum, gueltigBis, positionen: draft.positionen, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt, dringend } });
       toast('Angebot erstellt'); nav('auftrag', { id: auftragId });
     } else {
       store.belegAnlegen({ kind: 'rechnung', auftragId, neuerAuftrag,
@@ -217,44 +250,71 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             <div className="stack" style={{ gap: 8 }}>
               {pos.map((p, i) => (
                 <div key={i} style={mobile
-                  ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 32px', gap: 6, alignItems: 'center' }
-                  : { display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 32px', gap: 7, alignItems: 'center' }}>
+                  ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 86px', gap: 6, alignItems: 'center' }
+                  : { display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 86px', gap: 7, alignItems: 'center' }}>
                   <window.UI.Input value={p.text} onChange={(e) => updatePos(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '8px 10px', fontSize: 13, gridColumn: mobile ? '1 / -1' : 'auto' }} />
                   <window.UI.Input type="number" value={p.menge} onChange={(e) => updatePos(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'center' }} />
                   {/* Einheit: dropdown if this pos has a geraet hint, else text */}
                   <window.UI.Input value={p.einheit} onChange={(e) => updatePos(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px 8px', fontSize: 12.5 }} />
                   <window.UI.Input type="number" value={p.preis} onChange={(e) => updatePos(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'right' }} />
-                  <window.UI.IconBtn name="trash" size={15} onClick={() => removePos(i)} title="Entfernen" style={{ width: 32, height: 32 }} />
+                  <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                    <window.UI.IconBtn name="chevron" size={13} disabled={i === 0} onClick={() => movePos(i, -1)} title="nach oben" style={{ width: 26, height: 32, transform: 'rotate(-90deg)' }} />
+                    <window.UI.IconBtn name="chevron" size={13} disabled={i === pos.length - 1} onClick={() => movePos(i, 1)} title="nach unten" style={{ width: 26, height: 32, transform: 'rotate(90deg)' }} />
+                    <window.UI.IconBtn name="trash" size={15} onClick={() => removePos(i)} title="Entfernen" style={{ width: 28, height: 32 }} />
+                  </div>
                 </div>
               ))}
               {pos.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Noch keine Positionen. Gerät oder Leistung unten wählen ↓</div>}
             </div>
 
-            {/* Gerät-Picker */}
-            <div style={{ marginTop: 16, padding: '14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)' }}>
-              <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Gerät hinzufügen</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <window.UI.Field label="Gerät" style={{ flex: '2 1 140px', minWidth: 120 }}>
-                  <window.UI.Select value={pickerGeraet} onChange={(e) => { setPickerGeraet(e.target.value); setPickerEinheit(''); }}>
-                    <option value="">— wählen —</option>
-                    {store.db.flotte.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </window.UI.Select>
-                </window.UI.Field>
-                <window.UI.Field label="Einheit" style={{ flex: '2 1 120px', minWidth: 110 }}>
-                  <window.UI.Select value={pickerEinheit} onChange={(e) => setPickerEinheit(e.target.value)} disabled={!selectedGeraet}>
-                    <option value="">— wählen —</option>
-                    {einheitOptions.map((t, i) => <option key={i} value={t.einheit}>{t.einheit} {t.preis > 0 ? '– ' + F.fmtEUR(t.preis) : ''}</option>)}
-                  </window.UI.Select>
-                </window.UI.Field>
-                <window.UI.Btn icon="plus" onClick={addFromGeraet} disabled={!pickerEinheit} style={{ flex: '0 0 auto', marginBottom: 0 }}>Hinzufügen</window.UI.Btn>
+            {/* Positions-Picker: drei getrennte Kategorien */}
+            <div style={{ marginTop: 16, padding: '14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* 1) Gerät */}
+              <div>
+                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Gerät</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <window.UI.Field label="Gerät" style={{ flex: '2 1 140px', minWidth: 120 }}>
+                    <window.UI.Select value={pickerGeraet} onChange={(e) => { setPickerGeraet(e.target.value); setPickerEinheit(''); }}>
+                      <option value="">— wählen —</option>
+                      {echteGeraete.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </window.UI.Select>
+                  </window.UI.Field>
+                  <window.UI.Field label="Einheit" style={{ flex: '2 1 120px', minWidth: 110 }}>
+                    <window.UI.Select value={pickerEinheit} onChange={(e) => setPickerEinheit(e.target.value)} disabled={!selectedGeraet}>
+                      <option value="">— wählen —</option>
+                      {einheitOptions.map((t, i) => <option key={i} value={t.einheit}>{t.einheit} {t.preis > 0 ? '– ' + F.fmtEUR(t.preis) : ''}</option>)}
+                    </window.UI.Select>
+                  </window.UI.Field>
+                  <window.UI.Btn icon="plus" onClick={addFromGeraet} disabled={!pickerEinheit} style={{ flex: '0 0 auto', marginBottom: 0 }}>Hinzufügen</window.UI.Btn>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
-                  <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                    + {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}
-                  </button>
-                ))}
-                <button onClick={addFree} style={{ fontSize: 12, padding: '5px 10px', border: '1px dashed var(--line)', borderRadius: 'var(--r)', background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'var(--muted)' }}>+ Freie Position</button>
+              {/* 2) Anbaugeräte & Zubehör */}
+              {anbauGeraete.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Anbaugeräte &amp; Zubehör</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {anbauGeraete.map((g) => {
+                      const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0];
+                      return (
+                        <button key={g.id} onClick={() => addAnbau(g.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                          + {g.name}{tar && tar.preis > 0 ? ' · ' + F.fmtEUR(tar.preis) : (tar && tar.einheit === 'inklusive' ? ' · inkl.' : '')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* 3) Sonstige Servicepositionen */}
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Sonstige Servicepositionen</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
+                    <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                      + {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}
+                    </button>
+                  ))}
+                  <button onClick={addFree} style={{ fontSize: 12, padding: '5px 10px', border: '1px dashed var(--line)', borderRadius: 'var(--r)', background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'var(--muted)' }}>+ Freie Position</button>
+                </div>
               </div>
             </div>
 
@@ -267,11 +327,17 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
           {/* Konditionen */}
           <window.UI.Card style={{ padding: 18 }}>
             <div className="form-2">
-              <window.UI.Field label="Datum"><window.UI.Input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></window.UI.Field>
-              <window.UI.Field label={isAngebot ? 'Gültig bis' : 'Fällig bis'}>
-                <window.UI.Input type="date" value={isAngebot ? gueltigBis : faellig} onChange={(e) => isAngebot ? setGueltig(e.target.value) : setFaellig(e.target.value)} />
+              <window.UI.Field label={isAngebot ? 'Datum (automatisch heute)' : 'Datum'}><window.UI.Input type="date" value={datum} disabled={isAngebot} onChange={(e) => { if (!isAngebot) setDatum(e.target.value); }} /></window.UI.Field>
+              <window.UI.Field label={isAngebot ? 'Gültig bis (automatisch)' : 'Fällig bis'}>
+                <window.UI.Input type="date" value={isAngebot ? gueltigBis : faellig} disabled={isAngebot} onChange={(e) => { if (!isAngebot) setFaellig(e.target.value); }} />
               </window.UI.Field>
             </div>
+            {isAngebot && gueltigGekuerzt && (
+              <div style={{ display: 'flex', gap: 9, padding: '10px 12px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, marginTop: 12 }}>
+                <Icon name="alert" size={16} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
+                <span><b>Verkürzte Gültigkeit:</b> Wegen des nahen Arbeitsbeginns ({F.fmtDate(angebotVon)}) endet die Gültigkeit schon am <b>{F.fmtDate(gueltigBis)}</b> ({_vorlauf} Tage vorher) statt nach {_gTage} Tagen. Das Angebot wird beim Versand als <b>dringend</b> markiert.</span>
+              </div>
+            )}
             {isAngebot && (
               <div className="stack" style={{ gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
                 <div className="kicker" style={{ color: 'var(--muted)' }}>Wunsch-Zeitraum (für Kalender-Reservierung)</div>
@@ -301,7 +367,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
                     </div>
                   )
                 )}
-                <window.UI.Field label="Einsatzort"><window.UI.Input value={angebotOrt} onChange={(e) => setAngebotOrt(e.target.value)} placeholder="z. B. Baustelle Siegburg" /></window.UI.Field>
+                <window.UI.Field label="Einsatzort (Adresse)"><window.UI.Input value={angebotOrt} onChange={(e) => setAngebotOrt(e.target.value)} placeholder="z. B. Musterstraße 5, 53797 Lohmar" /></window.UI.Field>
               </div>
             )}
             {!isAngebot && (

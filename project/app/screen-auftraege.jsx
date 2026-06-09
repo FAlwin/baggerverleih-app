@@ -9,6 +9,16 @@ function auZeitraum(F, a) {
   return d + z;
 }
 
+// Positionen aus der Geräte-Liste eines Auftrags ableiten (jedes Gerät → eine Position, Preis aus Tarif).
+function positionenAusGeraete(a, store) {
+  const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId }];
+  return liste.filter((ge) => ge.geraetId).map((ge) => {
+    const gg = store.geraetById(ge.geraetId);
+    const tar = ((gg && gg.tarif) || []).find((t) => t.preis > 0) || ((gg && gg.tarif) || [])[0] || { einheit: 'Tag', preis: 0 };
+    return { text: gg ? gg.name : ge.geraetId, einheit: ge.einheit || tar.einheit, menge: 1, preis: ge.preis != null ? ge.preis : tar.preis };
+  });
+}
+
 // kleines Typ-Label (Vermietung/Eigennutzung/Wartung)
 function TypBadge({ typ }) {
   const meta = (window.FRIESEN.AUFTRAG_TYP || {})[typ] || { label: typ, farbe: '#6B6B66' };
@@ -48,7 +58,7 @@ function AuftragFilter({ value, onChange, counts }) {
 }
 
 // gehört der Auftrag in die "Aktiv"-Liste (noch zu erledigen)?
-function istAktiv(a) { return a.status !== 'abgeschlossen' && a.status !== 'bezahlt'; }
+function istAktiv(a) { return a.status !== 'bezahlt' && a.status !== 'abgelehnt'; }
 
 window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
@@ -56,6 +66,9 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   const [filter, setFilter] = auS(params.filter || 'aktiv');
   const [q, setQ] = auS('');
   const [neuOpen, setNeuOpen] = auS(false);
+
+  // Vom Dashboard „Auftrag erstellen" kommend: Auswahl-Dialog automatisch öffnen.
+  React.useEffect(() => { if (params && params.neu) setNeuOpen(true); }, [params.neu]);
 
   const all = store.db.auftraege;
   const counts = {
@@ -194,11 +207,11 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
 function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   const id = a.id;
   ui = ui || {};
-  const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort };
+  const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort, positionen: positionenAusGeraete(a, store) };
   // Rechnung schreiben: aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag
   const rechnungSchreiben = () => {
     if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); }
-    else nav('rechnung-neu', { auftragId: id, kundeId: a.kundeId, prefill });
+    else { const mv = a.mietvertrag; nav('rechnung-neu', { auftragId: id, kundeId: a.kundeId, prefill: (mv && mv.positionen) ? { ...prefill, positionen: mv.positionen, von: mv.von || a.von, bis: mv.bis || a.bis } : prefill }); }
   };
 
   if (a.status === 'anfrage') return {
@@ -223,18 +236,21 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
     };
   }
 
+  // Nach der Reservierung: erst Rückgabe (Einsatz beenden), dann Rechnung, dann Zahlung.
   if (a.status === 'reserviert') return {
-    primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Erstellt die Rechnung und setzt den Auftrag auf „abgerechnet".', action: rechnungSchreiben },
+    primary: { label: 'Rückgabe & Abschluss', icon: 'check', hint: 'Einsatz beenden: Rückgabe erfassen (Zustand, Betankung, Betriebsstunden). Danach folgt die Rechnung.',
+      action: () => ui.openRueckgabe ? ui.openRueckgabe() : (store.setAuftragStatus(id, 'abgeschlossen'), toast('Einsatz abgeschlossen')) },
   };
+  if (a.status === 'abgeschlossen') {
+    if (!rechnung) return { primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Rechnung auf Basis des Einsatzes erstellen.', action: rechnungSchreiben } };
+    return { primary: { label: 'Als bezahlt markieren', icon: 'check', hint: 'Bucht die Zahlung ein – der Auftrag gilt dann als bezahlt.',
+      action: () => { store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } } };
+  }
   if (a.status === 'abgerechnet') return {
     primary: { label: 'Als bezahlt markieren', icon: 'check', hint: 'Bucht die Zahlung ein – der Auftrag gilt dann als bezahlt.',
       action: () => { if (rechnung) store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } },
   };
-  if (a.status === 'bezahlt') return {
-    primary: { label: 'Auftrag abschließen', icon: 'check', hint: 'Schließt den Vorgang ab und legt ihn ins Archiv.',
-      action: () => { store.setAuftragStatus(id, 'abgeschlossen'); toast('Auftrag abgeschlossen'); } },
-  };
-  return null;
+  return null; // bezahlt = Endzustand
 }
 
 // läuft die Vermietung gerade? (heute im Zeitraum, schon gebucht, noch nicht abgeschlossen)
@@ -249,8 +265,12 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const [statusKorr, setStatusKorr] = auS(false);
   const [versendKind, setVersendKind] = auS(null);
   const [editOpen, setEditOpen] = auS(false);
+  const [editRechnungOpen, setEditRechnungOpen] = auS(false);
   const [mvOpen, setMvOpen] = auS(false);
   const [previewKind, setPreviewKind] = auS(null);
+  const [rueckOpen, setRueckOpen] = auS(false);
+  const [verlOpen, setVerlOpen] = auS(false);
+  const [geraetModal, setGeraetModal] = auS(null);  // null = zu; sonst { index: number|null } (null = neues Gerät)
   const a = store.auftragById(params.id);
 
   if (!a) return <><PageHeader title="Auftrag" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
@@ -259,14 +279,14 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const k = a.kundeId ? store.kundeById(a.kundeId) : null;
   const angebot = a.angebotId ? store.angebotById(a.angebotId) : null;
   const rechnung = a.rechnungId ? store.rechnungById(a.rechnungId) : null;
-  const ns = nextStep(a, angebot, rechnung, store, nav, toast, { openVersend: () => setVersendKind('angebot') });
+  const ns = nextStep(a, angebot, rechnung, store, nav, toast, { openVersend: () => setVersendKind('angebot'), openRueckgabe: () => setRueckOpen(true) });
   const laeuft = laeuftGerade(a, store.today);
-  const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort };
+  const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort, positionen: positionenAusGeraete(a, store) };
 
   // Rechnung erstellen (aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag)
   const rechnungSchreiben = () => {
     if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); }
-    else nav('rechnung-neu', { auftragId: a.id, kundeId: a.kundeId, prefill });
+    else { const mv = a.mietvertrag; nav('rechnung-neu', { auftragId: a.id, kundeId: a.kundeId, prefill: (mv && mv.positionen) ? { ...prefill, positionen: mv.positionen, von: mv.von || a.von, bis: mv.bis || a.bis } : prefill }); }
   };
   const angebotStatus = angebot ? (angebot.status === 'offen' && angebot.gueltigBis < store.today ? 'abgelaufen' : angebot.status) : null;
   const angebotPill = { offen: 'offen', versendet: 'ueberfaellig', angenommen: 'bezahlt', abgelaufen: 'abgelaufen' };
@@ -313,12 +333,12 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               )}
             </div>
           )}
-          {a.status === 'abgeschlossen' && (
+          {a.status === 'bezahlt' && (
             <div style={{ marginTop: 14, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
-              <Icon name="check" size={16} color="var(--ok)" /> Auftrag abgeschlossen
+              <Icon name="check" size={16} color="var(--ok)" /> Auftrag abgeschlossen &amp; bezahlt
             </div>
           )}
-          {a.status !== 'abgeschlossen' && (
+          {a.status !== 'bezahlt' && (
             <div style={{ marginTop: 10, textAlign: 'center' }}>
               <button onClick={() => setStatusKorr((v) => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: '4px 8px' }}>
                 Status manuell korrigieren
@@ -357,15 +377,47 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
             <TypBadge typ={a.typ} />
             <window.Pill status={a.status} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-            {g && <window.GeraetBadge geraet={g} size={40} />}
-            <div><div style={{ fontWeight: 700, fontSize: 15 }}>{g?.name}</div><div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{g?.detail}</div></div>
-          </div>
+          {/* Geräte-Liste (Mehrgeräte je Auftrag) – jede Zeile mit eigenem Zeitraum, klickbar zum Bearbeiten */}
+          {(() => {
+            const kannGeraete = !['abgeschlossen', 'bezahlt'].includes(a.status);
+            const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId, von: a.von, bis: a.bis, vonZeit: a.vonZeit, bisZeit: a.bisZeit }];
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                {liste.map((ge, gi) => {
+                  const gg = store.geraetById(ge.geraetId);
+                  return (
+                    <div key={gi} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', background: 'var(--paper-3)', borderRadius: 'var(--r)' }}>
+                      {gg && <window.GeraetBadge geraet={gg} size={36} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{gg?.name || ge.geraetId}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="clock" size={12} /> {auZeitraum(F, ge)}</div>
+                      </div>
+                      {kannGeraete && <window.UI.Btn size="sm" variant="ghost" icon="edit" title="Zeitraum/Gerät ändern" onClick={() => setGeraetModal({ index: gi })} />}
+                      {kannGeraete && liste.length > 1 && <window.UI.Btn size="sm" variant="ghost" icon="trash" title="Gerät entfernen" onClick={() => { if (confirm('Dieses Gerät aus dem Auftrag entfernen?')) { store.auftragGeraetRemove(a.id, gi); toast('Gerät entfernt'); } }} />}
+                    </div>
+                  );
+                })}
+                {kannGeraete && <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => setGeraetModal({ index: null })} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>}
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 13.5, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {k && <div onClick={() => nav('kunde', { id: k.id })} style={{ cursor: 'pointer', color: 'var(--ink)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="kunden" size={15} /> {k.name}</div>}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clock" size={15} /> {auZeitraum(F, a)}</div>
-            {a.ort && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pin" size={15} /> {a.ort}</div>}
+            {a.ort && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pin" size={15} /> {a.ort}</span>
+              <a href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(((store.db.company || {}).street || '') + ', ' + ((store.db.company || {}).city || ''))}&destination=${encodeURIComponent(a.ort)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--ink)', fontWeight: 600, fontSize: 12, textDecoration: 'underline' }}>
+                <Icon name="arrowRight" size={13} /> Route öffnen
+              </a>
+            </div>}
             {a.notiz && <div style={{ marginTop: 4, padding: '8px 11px', background: 'var(--paper-3)', borderRadius: 'var(--r)', color: 'var(--text)', fontSize: 12.5 }}>{a.notiz}</div>}
+            {a.rueckgabe && (
+              <div style={{ marginTop: 4, padding: '10px 12px', background: a.rueckgabe.zustand === 'maengel' ? 'var(--danger-wash)' : 'var(--ok-wash)', borderRadius: 'var(--r)', fontSize: 12.5, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>Rückgabe {a.rueckgabe.datum ? '· ' + F.fmtDate(a.rueckgabe.datum) : ''}</div>
+                <div>Zustand: {a.rueckgabe.zustand === 'maengel' ? 'Mängel/Schäden' : 'in Ordnung'}{a.rueckgabe.mangel ? ' – ' + a.rueckgabe.mangel : ''}</div>
+                <div>Betankung: {a.rueckgabe.betankung === 'nachtanken' ? 'Nachtanken nötig' : 'vollgetankt'}{a.rueckgabe.stunden ? ' · ' + a.rueckgabe.stunden : ''}</div>
+                {a.rueckgabe.notiz && <div>Notiz: {a.rueckgabe.notiz}</div>}
+              </div>
+            )}
           </div>
         </window.UI.Card>
 
@@ -380,23 +432,26 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               {angebot ? (
                 <>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{angebot.id} · {F.fmtEUR(angebot.betrag)} · gültig bis {F.fmtDate(angebot.gueltigBis)}</div>
-                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                  {angebot.versendetAm && <div style={{ fontSize: 11.5, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} color="var(--ok)" /> Versendet {F.fmtDate(angebot.versendetAm)}{angebot.versendetUeber ? ' · ' + angebot.versendetUeber : ''}</div>}
+                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                     {(angebotStatus === 'offen' || angebotStatus === 'versendet') &&
-                      <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendKind('angebot')}>{angebotStatus === 'versendet' ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
-                    <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Bearbeiten</window.UI.Btn>
+                      <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendKind('angebot')}>{angebot.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
+                    {!angebot.gesperrt
+                      ? <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Bearbeiten</window.UI.Btn>
+                      : <span style={{ fontSize: 11.5, color: 'var(--muted-2)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} /> Gesperrt – Vertrag unterschrieben</span>}
                   </div>
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Noch kein Angebot</div>
-                  {a.status !== 'abgeschlossen' && <window.UI.Btn size="sm" icon="plus" onClick={() => nav('rechnung-neu', { mode: 'angebot', auftragId: a.id, kundeId: a.kundeId, prefill })}>Angebot erstellen</window.UI.Btn>}
+                  <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Optional – ohne Angebot kann direkt eine Rechnung (und der Mietvertrag) erstellt werden.</div>
+                  {a.status !== 'abgeschlossen' && <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => nav('rechnung-neu', { mode: 'angebot', auftragId: a.id, kundeId: a.kundeId, prefill })}>Angebot erstellen</window.UI.Btn>}
                 </>
               )}
             </BelegKachel>
 
-            {/* Mietvertrag – erst möglich, wenn Angebot oder Rechnung vorhanden */}
+            {/* Mietvertrag – direkt möglich (auch ohne Angebot/Rechnung); nur ein Kunde wird benötigt */}
             {(() => {
-              const mvReady = !!(angebot || rechnung) && !!k;
+              const mvReady = !!k;
               const mvGesperrt = !!(a.mietvertrag && a.mietvertrag.gesperrt);
               return (
                 <BelegKachel icon="file" title="Mietvertrag" locked={!mvReady} onTitle={mvReady ? () => setMvOpen(true) : null}
@@ -404,13 +459,14 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                   {mvReady ? (
                     <>
                       <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>{mvGesperrt ? 'Beidseitig unterschrieben & gesperrt.' : 'Für die Übergabe – unterschreiben & als PDF speichern.'}</div>
+                      {a.mietvertrag && a.mietvertrag.versendetAm && <div style={{ fontSize: 11.5, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} color="var(--ok)" /> Versendet {F.fmtDate(a.mietvertrag.versendetAm)}{a.mietvertrag.versendetUeber ? ' · ' + a.mietvertrag.versendetUeber : ''}</div>}
                       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                         <window.UI.Btn size="sm" icon="file" onClick={() => setMvOpen(true)}>Öffnen</window.UI.Btn>
-                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('mietvertrag')}>Versenden</window.UI.Btn>
+                        <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('mietvertrag')}>{a.mietvertrag && a.mietvertrag.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>
                       </div>
                     </>
                   ) : (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Erst ein Angebot oder eine Rechnung anlegen.</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted-2)' }}>Erst einen Kunden zuordnen.</div>
                   )}
                 </BelegKachel>
               );
@@ -422,8 +478,11 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               {rechnung ? (
                 <>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{rechnung.id} · {F.fmtEUR(rechnung.betrag)} · fällig {F.fmtDate(rechnung.faellig)}</div>
+                  {rechnung.versendetAm && <div style={{ fontSize: 11.5, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} color="var(--ok)" /> Versendet {F.fmtDate(rechnung.versendetAm)}{rechnung.versendetUeber ? ' · ' + rechnung.versendetUeber : ''}</div>}
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                    <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('rechnung')}>Versenden</window.UI.Btn>
+                    {/* Bearbeiten nur solange die Rechnung nicht bezahlt UND nicht versendet ist */}
+                    {rechnung.status !== 'bezahlt' && !rechnung.versendetAm && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditRechnungOpen(true)}>Bearbeiten</window.UI.Btn>}
+                    <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('rechnung')}>{rechnung.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>
                     {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert'); }}>Als bezahlt</window.UI.Btn>}
                     {/* Mahnung nur solange nicht bezahlt – schließt sich gegenseitig aus */}
                     {(rechnung.status === 'offen' || rechnung.status === 'ueberfaellig') && <window.UI.Btn size="sm" variant="ghost" icon="alert" onClick={() => { store.setStatus(rechnung.id, 'mahnung'); toast('Mahnung erstellt'); }}>Mahnung</window.UI.Btn>}
@@ -458,15 +517,16 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
         if (versendKind === 'angebot') beleg = angebot;
         else if (versendKind === 'rechnung') beleg = rechnung;
         else if (versendKind === 'mietvertrag') {
-          const pos = (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [];
-          beleg = { id: a.id, datum: (a.mietvertrag && a.mietvertrag.datum) || store.today, positionen: pos, betrag: pos.reduce((s, p) => s + p.menge * p.preis, 0) };
+          const pos = (a.mietvertrag && a.mietvertrag.positionen) || (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [];
+          beleg = { id: a.id, datum: (a.mietvertrag && a.mietvertrag.datum) || store.today, positionen: pos, betrag: pos.reduce((s, p) => s + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0) };
         }
         if (!beleg) { return null; }
         return (
           <window.VersendModal kind={versendKind} beleg={beleg} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
             onSend={(ch) => {
-              if (versendKind === 'angebot') { window.angebotVersenden(store, angebot); toast(`Via ${ch} versendet · als Reserviert markiert`); }
-              else toast(`Via ${ch} versendet`);
+              if (versendKind === 'angebot') window.angebotVersenden(store, angebot);
+              store.belegVersendet(versendKind, versendKind === 'mietvertrag' ? a.id : beleg.id, ch);
+              toast(`Via ${ch} versendet${versendKind === 'angebot' ? ' · als Reserviert markiert' : ''}`);
               setVersendKind(null);
             }}
             onClose={() => setVersendKind(null)} />
@@ -478,12 +538,154 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
           onClose={() => setEditOpen(false)} />
       )}
       {mvOpen && <MietvertragModal auftrag={a} store={store} onClose={() => setMvOpen(false)} />}
+      {geraetModal && <GeraetZeileModal auftrag={a} store={store} index={geraetModal.index} onClose={() => setGeraetModal(null)} />}
+      {editRechnungOpen && rechnung && (
+        <EditRechnungModal rechnung={rechnung} store={store}
+          onSave={(patch) => { store.updateRechnung(rechnung.id, patch); toast('Rechnung aktualisiert'); setEditRechnungOpen(false); }}
+          onClose={() => setEditRechnungOpen(false)} />
+      )}
+      {rueckOpen && <RueckgabeModal auftrag={a} rechnung={rechnung} store={store} nav={nav} onClose={() => setRueckOpen(false)} />}
+      {verlOpen && <VerlaengernModal auftrag={a} store={store} onClose={() => setVerlOpen(false)} />}
       {previewKind && <DocPreviewModal kind={previewKind} auftrag={a} store={store}
-        onEdit={previewKind === 'angebot' ? () => { setPreviewKind(null); setEditOpen(true); } : null}
+        onEdit={previewKind === 'angebot'
+          ? (angebot && !angebot.gesperrt ? () => { setPreviewKind(null); setEditOpen(true); } : null)
+          : (rechnung && rechnung.status !== 'bezahlt' && !rechnung.versendetAm ? () => { setPreviewKind(null); setEditRechnungOpen(true); } : null)}
         onClose={() => setPreviewKind(null)} />}
     </>
   );
 };
+
+// ---- Auftrag verlängern + Folgetermine verschieben + Kunden-Mitteilung ----
+function VerlaengernModal({ auftrag, store, onClose }) {
+  const F = window.FRIESEN;
+  const toast = window.UI.useToast();
+  const c = store.db.company || {};
+  const g = store.geraetById(auftrag.geraetId);
+  const tel = (s) => s ? s.replace(/[^0-9]/g, '').replace(/^0/, '49') : '';
+  const dDays = (x, y) => Math.round((new Date(y + 'T00:00:00') - new Date(x + 'T00:00:00')) / 86400000);
+  const [bis, setBis] = auS(auftrag.bis);
+  const [uncheck, setUncheck] = auS({});
+  const [done, setDone] = auS(null);
+  const delta = dDays(auftrag.bis, bis);
+  const betroffen = store.db.auftraege.filter((x) => x.id !== auftrag.id && x.geraetId === auftrag.geraetId && !['abgeschlossen', 'abgelehnt'].includes(x.status) && x.von > auftrag.bis && x.von <= bis);
+  const isChecked = (id) => !uncheck[id];
+  const waLink = (kunde, msg) => `https://wa.me/${tel(kunde && (kunde.whatsapp || kunde.phone))}?text=${encodeURIComponent(msg)}`;
+  const hauptKunde = auftrag.kundeId ? store.kundeById(auftrag.kundeId) : null;
+  const hauptMsg = `Hallo ${hauptKunde ? hauptKunde.name : ''},\n\nIhr Einsatz mit „${g ? g.name : 'dem Gerät'}" verlängert sich bis ${F.fmtDate(bis)}.\nBei Fragen melden Sie sich gern.\n\nViele Grüße\n${c.owner || ''}`;
+
+  const anwenden = () => {
+    store.updateAuftrag(auftrag.id, { bis });
+    const verschoben = [];
+    betroffen.forEach((x) => {
+      if (isChecked(x.id)) {
+        const nv = window.addDays(x.von, delta), nb = window.addDays(x.bis, delta);
+        store.updateAuftrag(x.id, { von: nv, bis: nb });
+        verschoben.push({ id: x.id, kunde: store.kundeById(x.kundeId), von: nv, bis: nb });
+      }
+    });
+    setDone({ verschoben });
+    toast(`Auftrag verlängert${verschoben.length ? ` · ${verschoben.length} Folgetermin(e) verschoben` : ''}`);
+  };
+
+  return (
+    <window.UI.Modal open title="Auftrag verlängern" onClose={onClose} width={480}
+      footer={done
+        ? <window.UI.Btn icon="check" onClick={onClose}>Fertig</window.UI.Btn>
+        : <><window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={anwenden} disabled={!bis || bis < auftrag.von}>Verlängern</window.UI.Btn></>}>
+      {!done ? (
+        <div className="stack" style={{ gap: 14 }}>
+          <window.UI.Field label="Neues Enddatum"><window.UI.Input type="date" value={bis} onChange={(e) => setBis(e.target.value)} /></window.UI.Field>
+          {delta > 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Verlängerung um {delta} Tag(e).</div>}
+          {betroffen.length > 0 ? (
+            <div>
+              <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Folgetermine desselben Geräts – verschieben?</div>
+              <div className="stack" style={{ gap: 8 }}>
+                {betroffen.map((x) => {
+                  const ku = store.kundeById(x.kundeId);
+                  return (
+                    <label key={x.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 11px', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={isChecked(x.id)} onChange={(e) => setUncheck({ ...uncheck, [x.id]: !e.target.checked })} style={{ marginTop: 3 }} />
+                      <span style={{ flex: 1 }}><b>{x.id}</b> · {ku ? ku.name : '—'}<br /><span style={{ color: 'var(--muted)' }}>{F.fmtDate(x.von)} → {F.fmtDate(window.addDays(x.von, delta))}</span></span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (delta > 0 && <div style={{ fontSize: 12.5, color: 'var(--ok)' }}>Keine Folgetermine betroffen.</div>)}
+        </div>
+      ) : (
+        <div className="stack" style={{ gap: 12 }}>
+          <div style={{ fontSize: 13.5 }}>Verlängert bis <b>{F.fmtDate(bis)}</b>. Kunden per WhatsApp informieren:</div>
+          {hauptKunde && (hauptKunde.whatsapp || hauptKunde.phone) && (
+            <a href={waLink(hauptKunde, hauptMsg)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#25D366', color: '#fff', borderRadius: 'var(--r)', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
+              <Icon name="phone" size={18} color="#fff" /> {hauptKunde.name} (Verlängerung)
+            </a>
+          )}
+          {done.verschoben.map((v) => (v.kunde && (v.kunde.whatsapp || v.kunde.phone)) ? (
+            <a key={v.id} href={waLink(v.kunde, `Hallo ${v.kunde.name},\n\nleider verschiebt sich Ihr geplanter Termin mit „${g ? g.name : 'dem Gerät'}" auf ${F.fmtDate(v.von)}${v.bis !== v.von ? ' – ' + F.fmtDate(v.bis) : ''}.\nWir bitten um Ihr Verständnis und um kurze Bestätigung.\n\nViele Grüße\n${c.owner || ''}`)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#25D366', color: '#fff', borderRadius: 'var(--r)', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
+              <Icon name="phone" size={18} color="#fff" /> {v.kunde.name} (verschoben auf {F.fmtDate(v.von)})
+            </a>
+          ) : null)}
+        </div>
+      )}
+    </window.UI.Modal>
+  );
+}
+
+// ---- Rückgabeprotokoll (schlank) + Abschluss ----
+function RueckgabeModal({ auftrag, rechnung, store, nav, onClose }) {
+  const toast = window.UI.useToast();
+  const [zustand, setZustand] = auS('ok');
+  const [mangel, setMangel] = auS('');
+  const [betankung, setBetankung] = auS('voll');
+  const [stunden, setStunden] = auS('');
+  const [notiz, setNotiz] = auS('');
+  const abschliessen = () => {
+    const snap = store.snapshot();
+    store.auftragAbschliessen(auftrag.id, {
+      zustand, mangel: zustand === 'maengel' ? mangel.trim() : '',
+      betankung, stunden: stunden.trim(), notiz: notiz.trim(),
+    });
+    onClose();
+    const undo = () => store.restoreSnapshot(snap);
+    if (rechnung && !rechnung.versendetAm) toast('Auftrag abgeschlossen · Rechnung noch nicht versendet', { undo });
+    else if (!rechnung) toast('Auftrag abgeschlossen · noch keine Rechnung erstellt', { undo });
+    else toast('Auftrag abgeschlossen', { undo });
+  };
+  return (
+    <window.UI.Modal open title="Rückgabe & Abschluss" onClose={onClose} width={460}
+      footer={<><window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={abschliessen}>Abschließen</window.UI.Btn></>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Kurzes Rückgabeprotokoll – danach gilt der Auftrag als abgeschlossen.</div>
+        <window.UI.Field label="Zustand bei Rückgabe">
+          <window.UI.Select value={zustand} onChange={(e) => setZustand(e.target.value)}>
+            <option value="ok">In Ordnung</option>
+            <option value="maengel">Mängel / Schäden</option>
+          </window.UI.Select>
+        </window.UI.Field>
+        {zustand === 'maengel' && (
+          <window.UI.Field label="Mängel / Schäden">
+            <window.UI.Textarea value={mangel} onChange={(e) => setMangel(e.target.value)} rows={3} placeholder="z. B. Kratzer an der Schaufel, Hydraulikschlauch undicht …" />
+          </window.UI.Field>
+        )}
+        <div className="form-2">
+          <window.UI.Field label="Betankung">
+            <window.UI.Select value={betankung} onChange={(e) => setBetankung(e.target.value)}>
+              <option value="voll">Vollgetankt zurück</option>
+              <option value="nachtanken">Nachtanken nötig</option>
+            </window.UI.Select>
+          </window.UI.Field>
+          <window.UI.Field label="Betriebsstunden (optional)">
+            <window.UI.Input value={stunden} onChange={(e) => setStunden(e.target.value)} placeholder="z. B. 12,5 h" />
+          </window.UI.Field>
+        </div>
+        <window.UI.Field label="Notiz (optional)">
+          <window.UI.Input value={notiz} onChange={(e) => setNotiz(e.target.value)} placeholder="z. B. gereinigt übergeben" />
+        </window.UI.Field>
+      </div>
+    </window.UI.Modal>
+  );
+}
 
 // ---- Dokument-Vorschau (A4, in-place) für Angebot/Rechnung ----
 function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
@@ -511,9 +713,9 @@ function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
     <window.UI.Modal open title={title} onClose={onClose} width={700}
       footer={<>
         {onEdit && <window.UI.Btn variant="ghost" icon="edit" onClick={onEdit}>Bearbeiten</window.UI.Btn>}
-        {k && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>Versenden</window.UI.Btn>}
+        {k && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>{beleg && beleg.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
         <window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>
-        <window.UI.Btn icon="download" onClick={() => window.PDF.download(doc, fileName)}>PDF herunterladen</window.UI.Btn>
+        <window.UI.Btn icon="download" onClick={() => window.PDF.download(doc, fileName)}>Drucken / als PDF</window.UI.Btn>
       </>}>
       <div ref={ref} style={{ background: 'var(--paper-3)', borderRadius: 'var(--r)', padding: 16, display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
         <div style={{ width: 793 * scale, height: 1122 * scale, flex: '0 0 auto' }}>
@@ -522,7 +724,7 @@ function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
       </div>
       {versendOpen && k && (
         <window.VersendModal kind={kind} beleg={beleg} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
-          onSend={(ch) => { if (kind === 'angebot') window.angebotVersenden(store, beleg); toast(`Via ${ch} versendet`); setVersendOpen(false); }}
+          onSend={(ch) => { if (kind === 'angebot') window.angebotVersenden(store, beleg); store.belegVersendet(kind, beleg.id, ch); toast(`Via ${ch} versendet`); setVersendOpen(false); }}
           onClose={() => setVersendOpen(false)} />
       )}
     </window.UI.Modal>
@@ -539,29 +741,87 @@ function MietvertragModal({ auftrag, store, onClose }) {
   const angebot = auftrag.angebotId ? store.angebotById(auftrag.angebotId) : null;
   const mv = auftrag.mietvertrag || {};
   const gesperrt = !!mv.gesperrt;
-  const sigV = mv.signaturVermieter || null;
+  const firmaSig = (store.db.company || {}).signaturVermieter || null;
+  const sigV = mv.signaturVermieter || firmaSig || null;       // Vermieter-Unterschrift kommt automatisch aus den Einstellungen
+  const vAusEinstellungen = !mv.signaturVermieter && !!firmaSig;
   const sigM = mv.signaturMieter || null;
-  // Bei gesperrtem Vertrag den festgehaltenen Positionen-Snapshot nutzen (unveränderlich)
-  const positionen = (gesperrt && mv.positionen) || (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || [{ text: g?.name || 'Mietgerät', menge: 1, einheit: 'Pauschal', preis: 0 }];
+  // Der Mietvertrag führt Positionen & Zeitraum eigenständig. Beim ersten Öffnen aus Rechnung→Angebot→Gerät
+  // vorbefüllt; sobald bearbeitet oder unterschrieben, gehören die Werte dem Vertrag (unveränderlich bei gesperrt).
+  const geraetePos = positionenAusGeraete(auftrag, store);
+  const effPositionen = mv.positionen || (rechnung && rechnung.positionen) || (angebot && angebot.positionen) || (geraetePos.length ? geraetePos : [{ text: g?.name || 'Mietgerät', menge: 1, einheit: 'Pauschal', preis: 0 }]);
+  const effVon = mv.von || auftrag.von || null;
+  const effBis = mv.bis || auftrag.bis || null;
   const mvDatum = mv.datum || store.today;
-  const mvDoc = { id: auftrag.id, datum: mvDatum, positionen, betrag: positionen.reduce((s, p) => s + p.menge * p.preis, 0) };
-  const mietzeit = auftrag.von === auftrag.bis ? F.fmtDate(auftrag.von) : `${F.fmtDate(auftrag.von)} – ${F.fmtDate(auftrag.bis)}`;
   const [sigPad, setSigPad] = auS(null);
   const [versendOpen, setVersendOpen] = auS(false);
+  const [edit, setEdit] = auS(null);  // null = geschlossen; sonst { positionen, von, bis } (lokaler Entwurf für Live-Vorschau)
+  const [mvRef, mvScale] = window.useFitScale ? window.useFitScale(793) : [null, 0.5];
+  // Live-Werte: bei offenem Editor der Entwurf, sonst die gespeicherten Effektivwerte
+  const livePos = edit ? edit.positionen : effPositionen;
+  const liveVon = edit ? edit.von : effVon;
+  const liveBis = edit ? edit.bis : effBis;
+  const positionen = livePos;
+  const mvDoc = { id: auftrag.id, datum: mvDatum, positionen: livePos, betrag: livePos.reduce((s, p) => s + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0) };
+  const mietzeit = !liveVon ? '—' : (liveVon === liveBis ? F.fmtDate(liveVon) : `${F.fmtDate(liveVon)} – ${F.fmtDate(liveBis)}`);
+  const openEdit = () => setEdit({ positionen: effPositionen.map((p) => ({ ...p })), von: effVon || store.today, bis: effBis || effVon || store.today });
+  const updRow = (i, patch) => setEdit((e) => ({ ...e, positionen: e.positionen.map((p, j) => j === i ? { ...p, ...patch } : p) }));
+  const addRow = () => setEdit((e) => ({ ...e, positionen: [...e.positionen, { text: '', einheit: 'Tag', menge: 1, preis: 0 }] }));
+  const delRow = (i) => setEdit((e) => ({ ...e, positionen: e.positionen.filter((_, j) => j !== i) }));
+  const saveEdit = () => {
+    store.mietvertragUpdate(auftrag.id, {
+      positionen: edit.positionen.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })),
+      von: edit.von, bis: edit.bis,
+    });
+    setEdit(null); toast('Mietvertrag aktualisiert');
+  };
   const doc = <window.Print.MietvertragDoc rechnung={mvDoc} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={mietzeit} signaturVermieter={sigV} signaturMieter={sigM} />;
   const pdfDoc = <>{doc}<window.Print.MietbedingungenPage company={store.db.company} /></>;
   return (
-    <window.UI.Modal open title="Mietvertrag" onClose={onClose} width={480}
+    <window.UI.Modal open title="Mietvertrag" onClose={onClose} width={600}
       footer={<>
         <window.UI.Btn variant="ghost" onClick={onClose}>Schließen</window.UI.Btn>
-        {k && k.id && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>Versenden</window.UI.Btn>}
-        <window.UI.Btn icon="download" onClick={() => window.PDF.download(pdfDoc, 'Mietvertrag_' + auftrag.id)}>PDF herunterladen</window.UI.Btn>
+        {k && k.id && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => setVersendOpen(true)}>{mv.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
+        <window.UI.Btn icon="download" onClick={() => window.PDF.download(pdfDoc, 'Mietvertrag_' + auftrag.id)}>Drucken / als PDF</window.UI.Btn>
       </>}>
       <div className="stack" style={{ gap: 14 }}>
-        <div style={{ fontSize: 13.5, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div><b style={{ color: 'var(--ink)' }}>{g?.name}</b> · {k.name}</div>
-          <div>Mietzeit: <b style={{ color: 'var(--ink)' }}>{mietzeit}</b></div>
+        {/* A4-Vorschau (wie Rechnung/Angebot) – auch vor der Unterschrift sichtbar */}
+        <div ref={mvRef} style={{ background: 'var(--paper-3)', borderRadius: 'var(--r)', padding: 12, display: 'flex', justifyContent: 'center', overflow: 'hidden', maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ width: 793 * mvScale, height: 1122 * mvScale, flex: '0 0 auto' }}>
+            <div style={{ transform: `scale(${mvScale})`, transformOrigin: 'top left', width: 793, boxShadow: 'var(--shadow-lg)' }}>{doc}</div>
+          </div>
         </div>
+        <div style={{ fontSize: 13.5, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div><b style={{ color: 'var(--ink)' }}>{g?.name}</b> · {k.name}</div>
+            <div>Mietzeit: <b style={{ color: 'var(--ink)' }}>{mietzeit}</b></div>
+          </div>
+          {!gesperrt && !edit && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={openEdit}>Bearbeiten</window.UI.Btn>}
+        </div>
+        {edit && (
+          <div className="stack" style={{ gap: 12, padding: 12, background: 'var(--paper-3)', borderRadius: 'var(--r)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <window.UI.Field label="Von"><window.UI.Input type="date" value={edit.von || ''} onChange={(e) => setEdit((s) => ({ ...s, von: e.target.value }))} /></window.UI.Field>
+              <window.UI.Field label="Bis"><window.UI.Input type="date" value={edit.bis || ''} onChange={(e) => setEdit((s) => ({ ...s, bis: e.target.value }))} /></window.UI.Field>
+            </div>
+            <div className="stack" style={{ gap: 8 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>Positionen</div>
+              {edit.positionen.map((p, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 56px 70px 80px 32px', gap: 6, alignItems: 'center' }}>
+                  <window.UI.Input value={p.text} onChange={(e) => updRow(i, { text: e.target.value })} placeholder="Bezeichnung" style={{ padding: '8px', fontSize: 13 }} />
+                  <window.UI.Input type="number" value={p.menge} onChange={(e) => updRow(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px', fontSize: 13, textAlign: 'center' }} />
+                  <window.UI.Input value={p.einheit} onChange={(e) => updRow(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px', fontSize: 12.5 }} />
+                  <window.UI.Input type="number" value={p.preis} onChange={(e) => updRow(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px', fontSize: 13, textAlign: 'right' }} />
+                  <window.UI.Btn size="sm" variant="ghost" icon="trash" title="Entfernen" onClick={() => delRow(i)} />
+                </div>
+              ))}
+              <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={addRow}>Position hinzufügen</window.UI.Btn>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <window.UI.Btn size="sm" variant="ghost" onClick={() => setEdit(null)}>Abbrechen</window.UI.Btn>
+              <window.UI.Btn size="sm" icon="check" onClick={saveEdit}>Speichern</window.UI.Btn>
+            </div>
+          </div>
+        )}
         {gesperrt ? (
           <div style={{ padding: '11px 13px', background: 'var(--ok-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--ok)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <Icon name="check" size={16} color="var(--ok)" style={{ flex: '0 0 auto', marginTop: 1 }} />
@@ -572,16 +832,114 @@ function MietvertragModal({ auftrag, store, onClose }) {
             Bei der Übergabe vor Ort unterschreiben. Sobald <b>beide</b> unterschrieben haben, wird der Vertrag gesperrt und ist unveränderlich.
           </div>
         )}
-        <window.UI.Btn variant={sigV ? 'okghost' : 'ghost'} icon={sigV ? 'check' : 'edit'} disabled={!!sigV} onClick={() => setSigPad('v')} style={{ width: '100%' }}>{sigV ? 'Vermieter ✓ unterschrieben' : 'Vermieter unterschreiben'}</window.UI.Btn>
-        <window.UI.Btn variant={sigM ? 'okghost' : 'ghost'} icon={sigM ? 'check' : 'edit'} disabled={!!sigM} onClick={() => setSigPad('m')} style={{ width: '100%' }}>{sigM ? 'Mieter ✓ unterschrieben' : 'Mieter unterschreiben'}</window.UI.Btn>
+        <window.UI.Btn variant={sigV ? 'okghost' : 'ghost'} icon={sigV ? 'check' : 'edit'} disabled={!!sigV} onClick={() => setSigPad('v')} style={{ width: '100%' }}>{sigV ? (vAusEinstellungen ? 'Vermieter ✓ (aus Einstellungen)' : 'Vermieter ✓ unterschrieben') : 'Vermieter unterschreiben'}</window.UI.Btn>
+        <window.UI.Btn variant={sigM ? 'okghost' : 'ghost'} icon={sigM ? 'check' : 'edit'} disabled={!!sigM} onClick={() => setSigPad('m')} style={{ width: '100%' }}>{sigM ? 'Mieter ✓ unterschrieben' : 'Unterschrift Kunde'}</window.UI.Btn>
       </div>
       {sigPad && <window.UI.SignaturPad title={sigPad === 'v' ? 'Unterschrift Vermieter (Julian)' : 'Unterschrift Mieter (' + k.name + ')'}
         onSave={(d) => { store.mietvertragSign(auftrag.id, sigPad, d); setSigPad(null); toast(sigPad === 'v' ? 'Unterschrift Vermieter gespeichert' : 'Unterschrift Mieter gespeichert'); }}
         onClose={() => setSigPad(null)} />}
       {versendOpen && k && k.id && (
         <window.VersendModal kind="mietvertrag" beleg={{ id: auftrag.id, datum: mvDatum, positionen, betrag: mvDoc.betrag }} kunde={k} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate}
-          onSend={(ch) => { toast(`Via ${ch} versendet`); setVersendOpen(false); }} onClose={() => setVersendOpen(false)} />
+          onSend={(ch) => { store.belegVersendet('mietvertrag', auftrag.id, ch); toast(`Via ${ch} versendet`); setVersendOpen(false); }} onClose={() => setVersendOpen(false)} />
       )}
+    </window.UI.Modal>
+  );
+}
+
+// ---- Geräte-Buchung im Auftrag anlegen/bearbeiten (mit harter Doppelbuchungs-Sperre) ----
+function GeraetZeileModal({ auftrag, store, index, onClose }) {
+  const F = window.FRIESEN;
+  const toast = window.UI.useToast();
+  const istNeu = index == null;
+  const cur = !istNeu ? (auftrag.geraete || [])[index] : null;
+  const echteGeraete = (store.db.flotte || []).filter((g) => g.kat !== 'Anbau');
+  const [geraetId, setGeraetId] = auS(cur ? cur.geraetId : '');
+  const [von, setVon] = auS(cur ? cur.von : (auftrag.von || store.today));
+  const [bis, setBis] = auS(cur ? cur.bis : (auftrag.bis || auftrag.von || store.today));
+  const [vonZeit, setVonZeit] = auS(cur ? (cur.vonZeit || '08:00') : '08:00');
+  const [bisZeit, setBisZeit] = auS(cur ? (cur.bisZeit || '17:00') : '17:00');
+  const datumFehler = bis < von ? 'Enddatum liegt vor dem Startdatum.' : null;
+  // exceptId = der Auftrag selbst, damit die übrigen Geräte desselben Auftrags nicht als Konflikt zählen
+  const konflikt = (!datumFehler && geraetId) ? store.findConflict(geraetId, von, bis, auftrag.id) : null;
+  const konfliktMsg = konflikt ? `${store.geraetById(geraetId)?.name} ist ${F.fmtDate(konflikt.von)}–${F.fmtDate(konflikt.bis)} bereits belegt.` : null;
+  const blockiert = !geraetId || !!datumFehler || !!konflikt;
+  const speichern = () => {
+    if (blockiert) return;
+    const entry = { geraetId, von, bis, vonZeit, bisZeit };
+    if (istNeu) store.auftragGeraetAdd(auftrag.id, entry); else store.auftragGeraetUpdate(auftrag.id, index, entry);
+    toast(istNeu ? 'Gerät hinzugefügt' : 'Gerät aktualisiert'); onClose();
+  };
+  return (
+    <window.UI.Modal open title={istNeu ? 'Weiteres Gerät' : 'Gerät bearbeiten'} onClose={onClose} width={460}
+      footer={<>
+        <window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn>
+        <window.UI.Btn icon="check" onClick={speichern} disabled={blockiert}>Speichern</window.UI.Btn>
+      </>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <window.UI.Field label="Gerät" required>
+          <window.UI.Select value={geraetId} onChange={(e) => setGeraetId(e.target.value)}>
+            <option value="">— wählen —</option>
+            {echteGeraete.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </window.UI.Select>
+        </window.UI.Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <window.UI.Field label="Von"><window.UI.Input type="date" value={von} onChange={(e) => setVon(e.target.value)} /></window.UI.Field>
+          <window.UI.Field label="Bis"><window.UI.Input type="date" value={bis} onChange={(e) => setBis(e.target.value)} /></window.UI.Field>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <window.UI.Field label="von Uhr"><window.UI.Input type="time" value={vonZeit} onChange={(e) => setVonZeit(e.target.value)} /></window.UI.Field>
+          <window.UI.Field label="bis Uhr"><window.UI.Input type="time" value={bisZeit} onChange={(e) => setBisZeit(e.target.value)} /></window.UI.Field>
+        </div>
+        {(datumFehler || konfliktMsg) && (
+          <div style={{ display: 'flex', gap: 10, padding: '11px 13px', background: 'var(--danger-wash)', borderRadius: 'var(--r)', color: 'var(--danger)', fontSize: 13 }}>
+            <Icon name="alert" size={18} style={{ flex: '0 0 auto' }} />{datumFehler || konfliktMsg}
+          </div>
+        )}
+      </div>
+    </window.UI.Modal>
+  );
+}
+
+// ---- Rechnung bearbeiten (nur solange nicht bezahlt/versendet) ----
+function EditRechnungModal({ rechnung, store, onSave, onClose }) {
+  const F = window.FRIESEN;
+  const [datum, setDatum] = auS(rechnung.datum || store.today);
+  const [faellig, setFaellig] = auS(rechnung.faellig || store.today);
+  const [pos, setPos] = auS((rechnung.positionen || []).map((p) => ({ ...p })));
+  const updRow = (i, patch) => setPos((arr) => arr.map((p, j) => j === i ? { ...p, ...patch } : p));
+  const addRow = () => setPos((arr) => [...arr, { text: '', einheit: 'Tag', menge: 1, preis: 0 }]);
+  const delRow = (i) => setPos((arr) => arr.filter((_, j) => j !== i));
+  const total = pos.reduce((s, p) => s + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
+  const speichern = () => onSave({
+    datum, faellig,
+    positionen: pos.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })),
+  });
+  return (
+    <window.UI.Modal open title={`Rechnung ${rechnung.id} bearbeiten`} onClose={onClose} width={560}
+      footer={<>
+        <window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn>
+        <window.UI.Btn icon="check" onClick={speichern}>Speichern</window.UI.Btn>
+      </>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <window.UI.Field label="Rechnungsdatum"><window.UI.Input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></window.UI.Field>
+          <window.UI.Field label="Fällig am"><window.UI.Input type="date" value={faellig} onChange={(e) => setFaellig(e.target.value)} /></window.UI.Field>
+        </div>
+        <div className="stack" style={{ gap: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>Positionen</div>
+          {pos.map((p, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 56px 70px 80px 32px', gap: 6, alignItems: 'center' }}>
+              <window.UI.Input value={p.text} onChange={(e) => updRow(i, { text: e.target.value })} placeholder="Bezeichnung" style={{ padding: '8px', fontSize: 13 }} />
+              <window.UI.Input type="number" value={p.menge} onChange={(e) => updRow(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px', fontSize: 13, textAlign: 'center' }} />
+              <window.UI.Input value={p.einheit} onChange={(e) => updRow(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px', fontSize: 12.5 }} />
+              <window.UI.Input type="number" value={p.preis} onChange={(e) => updRow(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px', fontSize: 13, textAlign: 'right' }} />
+              <window.UI.Btn size="sm" variant="ghost" icon="trash" title="Entfernen" onClick={() => delRow(i)} />
+            </div>
+          ))}
+          <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={addRow}>Position hinzufügen</window.UI.Btn>
+        </div>
+        <div style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700 }}>Gesamt: {F.fmtEUR(total)}</div>
+      </div>
     </window.UI.Modal>
   );
 }
@@ -595,12 +953,12 @@ function BelegKachel({ icon, title, status, onTitle, locked, children }) {
     </span>
   );
   return (
-    <div style={{ background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, opacity: locked ? 0.7 : 1 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+    <div style={{ background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, opacity: locked ? 0.7 : 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         {onTitle
-          ? <button onClick={onTitle} title="Vorschau öffnen" style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>{head}</button>
+          ? <button onClick={onTitle} title="Vorschau öffnen" style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', minWidth: 0 }}>{head}</button>
           : head}
-        {status}
+        {status && <span style={{ flex: '0 0 auto', whiteSpace: 'nowrap' }}>{status}</span>}
       </div>
       {children}
     </div>

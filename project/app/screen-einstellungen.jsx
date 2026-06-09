@@ -23,6 +23,7 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
   const [allg, setAllg] = esS({
     zahlungszielTage: s0.zahlungszielTage ?? 14,
     angebotGueltigTage: s0.angebotGueltigTage ?? 14,
+    angebotVorlaufTage: s0.angebotVorlaufTage ?? 3,
     geschaeftszeitVon: s0.geschaeftszeitVon ?? 7,
     geschaeftszeitBis: s0.geschaeftszeitBis ?? 19,
     mietWochentage: Array.isArray(s0.mietWochentage) ? [...s0.mietWochentage] : [false, true, true, true, true, true, true],
@@ -30,14 +31,20 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
   const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
   const toggleTag = (i) => setAllg((p) => { const m = [...p.mietWochentage]; m[i] = !m[i]; return { ...p, mietWochentage: m }; });
   const [nummern, setNummern] = esS(JSON.parse(JSON.stringify(s0.nummern || {})));
+  const [sigPadOpen, setSigPadOpen] = esS(false);
+  const sigFileRef = React.useRef();
 
   const setF = (k, v) => setFirma((p) => ({ ...p, [k]: v }));
+  // Unterschrift sofort speichern (unabhängig vom Firmendaten-Speichern-Button)
+  const setSignatur = (dataUrl) => { setF('signaturVermieter', dataUrl); store.updateCompany({ signaturVermieter: dataUrl }); toast(dataUrl ? 'Unterschrift gespeichert' : 'Unterschrift entfernt'); };
+  const pickSig = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => setSignatur(ev.target.result); r.readAsDataURL(f); e.target.value = ''; };
 
   const speicherFirma = () => { store.updateCompany(firma); toast('Firmendaten gespeichert'); };
   const speicherAllg = () => {
     store.updateSettings({
       zahlungszielTage: Math.max(0, parseInt(allg.zahlungszielTage, 10) || 0),
       angebotGueltigTage: Math.max(1, parseInt(allg.angebotGueltigTage, 10) || 14),
+      angebotVorlaufTage: Math.max(0, parseInt(allg.angebotVorlaufTage, 10) || 0),
       geschaeftszeitVon: Math.min(23, Math.max(0, parseInt(allg.geschaeftszeitVon, 10) || 0)),
       geschaeftszeitBis: Math.min(24, Math.max(1, parseInt(allg.geschaeftszeitBis, 10) || 24)),
       mietWochentage: allg.mietWochentage,
@@ -95,9 +102,23 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
             <window.UI.Field label="Hinweis Kleinunternehmer (§ 19 UStG)" hint="Steht als Hinweis auf Angebot und Rechnung.">
               <window.UI.Textarea value={firma.ustHinweis || ''} onChange={(e) => setF('ustHinweis', e.target.value)} />
             </window.UI.Field>
+            <window.UI.Field label="Unterschrift Vermieter" hint="Einmal hinterlegen – erscheint automatisch auf Mietvertrag und Rechnung.">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <div style={{ width: 200, height: 70, border: '1.5px dashed var(--line-2)', borderRadius: 'var(--r)', background: '#fff', display: 'grid', placeItems: 'center', overflow: 'hidden', flex: '0 0 auto' }}>
+                  {firma.signaturVermieter ? <img src={firma.signaturVermieter} alt="Unterschrift" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : <span style={{ fontSize: 12, color: 'var(--muted-2)' }}>Keine Unterschrift</span>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setSigPadOpen(true)}>Zeichnen</window.UI.Btn>
+                  <window.UI.Btn size="sm" variant="ghost" icon="download" onClick={() => sigFileRef.current && sigFileRef.current.click()}>Bild hochladen</window.UI.Btn>
+                  {firma.signaturVermieter && <window.UI.Btn size="sm" variant="ghost" icon="x" onClick={() => setSignatur(null)}>Entfernen</window.UI.Btn>}
+                </div>
+                <input ref={sigFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={pickSig} />
+              </div>
+            </window.UI.Field>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <window.UI.Btn icon="check" onClick={speicherFirma}>Firmendaten speichern</window.UI.Btn>
             </div>
+            {sigPadOpen && <window.UI.SignaturPad title="Unterschrift Vermieter (Julian Friesen)" onSave={(d) => { setSignatur(d); setSigPadOpen(false); }} onClose={() => setSigPadOpen(false)} />}
           </div>
         </window.UI.Card>
 
@@ -113,6 +134,9 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
                 <window.UI.Input type="number" min="1" value={allg.angebotGueltigTage} onChange={(e) => setAllg({ ...allg, angebotGueltigTage: e.target.value })} />
               </window.UI.Field>
             </div>
+            <window.UI.Field label="Angebot-Vorlauf (Tage)" hint="Mindestabstand zwischen heute und Arbeitsbeginn. Liegt der Start näher, warnt die App bei kurzfristigen Angeboten (0 = aus).">
+              <window.UI.Input type="number" min="0" value={allg.angebotVorlaufTage} onChange={(e) => setAllg({ ...allg, angebotVorlaufTage: e.target.value })} />
+            </window.UI.Field>
             <window.UI.Field label="Vermiet-Wochentage" hint="Abgewählte Tage: keine Buchung möglich und sie zählen nicht als Miettag (Enddatum verschiebt sich).">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {WOCHENTAGE.map((w, i) => {

@@ -117,8 +117,10 @@ Print.RechnungDoc = function RechnungDoc({ rechnung, kunde, company, fmtEUR, fmt
       <p style={{ marginTop: 16, fontSize: 11.5 }}>
         Bitte überweisen Sie den Gesamtbetrag bis zum <b>{fmtDate(rechnung.faellig)}</b> unter Angabe der
         Rechnungsnummer <b>{rechnung.id}</b> auf das unten genannte Konto.<br /><br />
-        Mit freundlichen Grüßen<br /><b>{c.owner}</b>
+        Mit freundlichen Grüßen
       </p>
+      {c.signaturVermieter && <img src={c.signaturVermieter} alt="Unterschrift" style={{ height: 44, display: 'block', margin: '4px 0' }} />}
+      <div style={{ fontSize: 11.5, fontWeight: 700 }}>{c.owner}</div>
       <Footer c={c} />
     </div>
   );
@@ -294,35 +296,47 @@ Print.Mount = function Mount({ doc }) {
 
 window.Print = Print;
 
-// ---- PDF-Download (ohne Druckdialog) ----
-// Rendert das Dokument unsichtbar, erzeugt daraus per html2pdf eine A4-PDF und lädt sie herunter.
+// ---- PDF über den Browser-Druck ("Als PDF sichern") ----
+// Echtes, durchsuchbares/kopierbares Text-PDF; Unterschriften bleiben gestochen scharf (kein Rasterbild).
+// Der Funktionsname bleibt download(), damit alle Aufrufer unverändert funktionieren.
 const PDF = {
   saubererName: (s) => String(s || 'Dokument').replace(/[^\w.\-]+/g, '_'),
   download(doc, filename) {
-    const name = PDF.saubererName(filename || 'Dokument') + (/\.pdf$/i.test(filename || '') ? '' : '.pdf');
-    if (!window.html2pdf) {
-      // Fallback: Druckdialog, falls die Bibliothek (CDN) nicht geladen ist
-      alert('PDF-Bibliothek nicht geladen – es wird der Druckdialog geöffnet.');
-      window.print();
-      return;
-    }
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;background:#fff;z-index:-1;';
-    document.body.appendChild(holder);
-    const root = ReactDOM.createRoot(holder);
-    root.render(doc);
-    const cleanup = () => { try { root.unmount(); } catch (e) {} if (holder.parentNode) holder.parentNode.removeChild(holder); };
-    const opt = {
-      margin: 0, filename: name,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: holder.scrollWidth },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css', 'legacy'] },
+    // Doc isoliert ins #__printroot rendern; per @media print wird nur dieser Container gedruckt.
+    const old = document.getElementById('__printroot'); if (old) old.remove();
+    const oldS = document.getElementById('__printcss'); if (oldS) oldS.remove();
+    const root = document.createElement('div');
+    root.id = '__printroot';
+    document.body.appendChild(root);
+    const reactRoot = ReactDOM.createRoot(root);
+    try { ReactDOM.flushSync(() => reactRoot.render(doc)); } catch (e) { reactRoot.render(doc); }
+    const style = document.createElement('style');
+    style.id = '__printcss';
+    // Am Bildschirm unsichtbar (offscreen). Im Druck: alles außer #__printroot ausblenden, ohne Ränder.
+    style.textContent =
+      '#__printroot{position:fixed;left:-100000px;top:0;}' +
+      '@media print{' +
+      '  html,body{background:#fff!important;margin:0!important;}' +
+      '  body>*{display:none!important;}' +
+      '  #__printroot{display:block!important;position:static!important;left:auto!important;}' +
+      '  #__printroot>div{box-shadow:none!important;}' +
+      '  @page{size:A4;margin:0;}' +
+      '}';
+    document.head.appendChild(style);
+    const cleanup = () => {
+      window.removeEventListener('afterprint', cleanup);
+      try { reactRoot.unmount(); } catch (e) {}
+      if (root.parentNode) root.remove();
+      if (style.parentNode) style.remove();
     };
-    // kurzer Tick, damit React gerendert hat
-    setTimeout(() => {
-      window.html2pdf().set(opt).from(holder).save().then(cleanup).catch((e) => { console.error(e); cleanup(); });
-    }, 150);
+    window.addEventListener('afterprint', cleanup);
+    // Erst drucken, wenn Schriften geladen und das Layout gepainted wurde.
+    const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    fontsReady.then(() => setTimeout(() => {
+      window.print();
+      // Sicherheits-Cleanup, falls 'afterprint' im Browser nicht feuert
+      setTimeout(() => { if (document.getElementById('__printroot')) cleanup(); }, 120000);
+    }, 120));
   },
 };
 window.PDF = PDF;
