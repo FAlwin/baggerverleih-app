@@ -295,9 +295,19 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
     else { onChange({ bis: row.von }); setInfo('Verlängerung nicht möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
   };
   const setTage = (n) => {
-    let c = row.von, cnt = 1, guard = 0;
-    while (cnt < n && guard < 400) { let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; } if (['belegt', 'reserviert', 'past'].indexOf(dayStatus(store, row.geraetId, nx)) >= 0) break; c = nx; cnt++; guard++; }
+    setInfo('');
+    let c = row.von, cnt = 1, guard = 0, blocked = null;
+    while (cnt < n && guard < 400) {
+      let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; }
+      const st = dayStatus(store, row.geraetId, nx);
+      if (st === 'belegt' || st === 'reserviert' || st === 'past') { blocked = nx; break; }
+      c = nx; cnt++; guard++;
+    }
     onChange({ bis: c });
+    if (blocked && cnt < n) {
+      const grund = dayStatus(store, row.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
+      setInfo('Nur ' + cnt + ' Tag' + (cnt !== 1 ? 'e' : '') + ' am Stück möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.');
+    }
   };
 
   const busy = (hour && row.von) ? busyForDay(store, row.geraetId, row.von) : [];
