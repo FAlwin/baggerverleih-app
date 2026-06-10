@@ -348,7 +348,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
             ) },
         };
         return (
-          <div className="content-pad split-2" style={{ alignContent: 'start', alignItems: 'start' }}>
+          <div className={'content-pad ' + (dashEdit ? 'split-2' : 'dash-masonry')} style={{ alignContent: 'start', alignItems: 'start' }}>
             {order.map((id) => {
               const w = WIDGETS[id];
               if (!w) return null;
@@ -365,7 +365,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
                 );
               }
               if (w.empty) return null;
-              return <div key={id} style={w.span ? { gridColumn: '1 / -1' } : undefined}>{w.node}</div>;
+              return <div key={id} className="dash-tile">{w.node}</div>;
             })}
           </div>
         );

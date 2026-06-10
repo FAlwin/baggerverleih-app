@@ -11,6 +11,11 @@
 .split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-2  { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+/* Dashboard-Masonry: Kacheln packen sich spaltenweise dicht (kein Zeilen-Leerraum) */
+.dash-masonry { column-count: 2; column-gap: 18px; }
+.dash-masonry .dash-tile { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 18px; }
+@media (max-width: 1000px) { .dash-masonry { column-count: 1; } }
+
 /* Tabellen */
 .fr-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .fr-table th { text-align: left; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 11px 14px; border-bottom: 1.5px solid var(--line); white-space: nowrap; }
