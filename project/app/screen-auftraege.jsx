@@ -548,6 +548,14 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
           </div>
         </div>
 
+        {/* Verlauf dieses Auftrags */}
+        {(() => { const evs = (store.db.verlauf || []).filter((e) => e.auftragId === a.id); return (
+          <window.UI.Card style={{ padding: '14px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Icon name="clock" size={16} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Verlauf</h2></div>
+            <window.VerlaufTimeline events={evs} store={store} nav={nav} />
+          </window.UI.Card>
+        ); })()}
+
         {/* Auftrag löschen */}
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <window.UI.Btn variant="danger" icon="trash" onClick={loeschen}>Auftrag löschen</window.UI.Btn>
@@ -1092,6 +1100,44 @@ window.Screens.mietvertraege = function Mietvertraege({ nav, params = {}, mobile
             {rows.length === 0 && <window.UI.Empty icon="file" title="Keine Mietverträge" sub="Sobald Aufträge reserviert sind, erscheinen sie hier zum Unterschreiben." />}
           </div>
         </window.UI.Card>
+      </div>
+    </>
+  );
+};
+
+/* ============ Verlaufsbericht (Aktivitäts-Log) ============ */
+window.VerlaufTimeline = function VerlaufTimeline({ events, store, nav }) {
+  const VFARBE = { anfrage: '#6B6B66', auftrag: '#141414', angebot: '#2B6CB0', mietvertrag: '#E0AC00', status: '#141414', rueckgabe: '#F39222', rechnung: '#2F7D3A' };
+  const fmtTs = (ts) => { try { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0'); return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() + ' · ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ' Uhr'; } catch (e) { return ''; } };
+  if (!events || !events.length) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Noch keine Einträge.</div>;
+  return (
+    <div className="stack" style={{ gap: 0 }}>
+      {events.map((e, i) => (
+        <div key={e.id || i} style={{ display: 'flex', gap: 11, padding: '10px 0', borderTop: i ? '1px solid var(--paper-3)' : 'none' }}>
+          <span style={{ flex: '0 0 auto', width: 10, height: 10, borderRadius: 5, background: VFARBE[e.typ] || 'var(--muted-2)', marginTop: 4 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{e.text}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+              {fmtTs(e.ts)}
+              {e.auftragId && nav ? <> · <button onClick={() => nav('auftrag', { id: e.auftragId })} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', font: 'inherit', fontSize: 11.5, textDecoration: 'underline' }}>{e.auftragId}</button></> : null}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+window.Screens.verlauf = function Verlauf({ nav, mobile, onMenu, PageHeader }) {
+  const store = window.useStore();
+  const events = store.db.verlauf || [];
+  return (
+    <>
+      <PageHeader kicker="Aktivität" title="Verlauf" mobile={mobile} onMenu={onMenu} />
+      <div className="content-pad">
+        {events.length === 0
+          ? <window.UI.Empty icon="clock" title="Noch kein Verlauf" sub="Sobald Anfragen, Aufträge, Angebote, Mietverträge oder Rechnungen bearbeitet werden, erscheinen die Schritte hier chronologisch." />
+          : <window.UI.Card style={{ padding: '8px 18px' }}><window.VerlaufTimeline events={events} store={store} nav={nav} /></window.UI.Card>}
       </div>
     </>
   );

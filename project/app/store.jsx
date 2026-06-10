@@ -4,6 +4,14 @@
 const DB_KEY = 'friesen_db_v4';
 const { createContext, useContext, useState, useEffect, useCallback, useMemo } = React;
 
+// ---- Verlaufsprotokoll (Aktivitäts-Log): bei Mutationen einen Eintrag voranstellen ----
+const VERLAUF_STATUS_LBL = { anfrage: 'Anfrage', angebot: 'Angebot', reserviert: 'Gebucht / reserviert', einsatz: 'Gerät übergeben · Im Einsatz', abgeschlossen: 'Zurückgegeben · abgeschlossen', abgerechnet: 'Abgerechnet', bezahlt: 'Bezahlt', abgelehnt: 'Abgelehnt' };
+function verlaufTs() { try { return new Date().toISOString(); } catch (e) { return ''; } }
+function withLog(d, typ, text, auftragId) {
+  const ev = { id: 'ev' + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36), ts: verlaufTs(), typ: typ, text: text, auftragId: auftragId || null };
+  return [ev, ...((d && d.verlauf) || [])].slice(0, 500);
+}
+
 // Überfällig-Automatik: offene Rechnungen, deren Fälligkeit in der Vergangenheit liegt,
 // werden als „überfällig" geführt (nicht-destruktiv, betrifft nur Status 'offen').
 function normalizeOverdue(db) {
@@ -96,6 +104,7 @@ function seedDB() {
     buchungen: clone(F.BUCHUNGEN),
     anfragen: clone(F.ANFRAGEN),
     settings: clone(F.SETTINGS),
+    verlauf: [],
   }))));
 }
 
@@ -107,6 +116,7 @@ function loadDB() {
       const db = JSON.parse(raw);
       // Defensiv: fehlende Felder aus den Defaults ergänzen (z. B. settings bei Alt-Ständen)
       if (!db.belegungen) db.belegungen = [];
+      if (!Array.isArray(db.verlauf)) db.verlauf = [];
       // Geräte aus Alt-Ständen um neue Felder (Abrechnungsmodell, Zusatzleistungen) ergänzen
       if (Array.isArray(db.flotte)) {
         db.flotte = db.flotte.map((g) => {
@@ -185,7 +195,7 @@ function StoreProvider({ children }) {
 
   // ---- Mutationen ----
   const actions = useMemo(() => ({
-    markPaid: (id) => setDb((d) => ({ ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, status: 'bezahlt', bezahltAm: today } : r) })),
+    markPaid: (id) => setDb((d) => ({ ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, status: 'bezahlt', bezahltAm: today } : r), verlauf: withLog(d, 'rechnung', 'Rechnung ' + id + ' als bezahlt markiert', (d.rechnungen.find((x) => x.id === id) || {}).auftragId) })),
     setStatus: (id, status) => setDb((d) => ({ ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, status, ...(status === 'mahnung' ? { mahnstufe: (r.mahnstufe || 0) + 1 } : {}) } : r) })),
 
     addRechnung: (data) => {
@@ -224,7 +234,7 @@ function StoreProvider({ children }) {
           : a);
         let anfragen = d.anfragen;
         if (anfrageId) anfragen = anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x);
-        return { ...d, auftraege, rechnungen, angebote, anfragen };
+        return { ...d, auftraege, rechnungen, angebote, anfragen, verlauf: withLog(d, kind, (kind === 'angebot' ? 'Angebot ' : 'Rechnung ') + belegId + ' erstellt', auftragId) };
       });
     },
 
@@ -256,6 +266,7 @@ function StoreProvider({ children }) {
           rechnungen: [r, ...d.rechnungen],
           angebote: d.angebote.map((x) => x.id === id ? { ...x, status: 'angenommen' } : x),
           auftraege: d.auftraege.map((au) => au.angebotId === id ? { ...au, rechnungId: newId, status: 'abgerechnet' } : au),
+          verlauf: withLog(d, 'rechnung', 'Rechnung ' + newId + ' aus Angebot ' + id + ' erstellt', a.auftragId),
         };
       });
       return newId;
@@ -352,7 +363,7 @@ function StoreProvider({ children }) {
       const geraete = (a.geraete || []).filter((_, i) => i !== index);
       return geraete.length ? syncAuftragMirror({ ...a, geraete }) : { ...a, geraete };
     }) })),
-    setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a) })),
+    setAuftragStatus: (id, status) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, status } : a), verlauf: withLog(d, 'status', 'Status: ' + (VERLAUF_STATUS_LBL[status] || status), id) })),
     // Auftrag abschließen: Rückgabeprotokoll festhalten, Status „abgeschlossen" +
     // automatisch ins Geräte-Logbuch übertragen (Eintrag + Betriebsstunden aktualisieren).
     auftragAbschliessen: (id, rueckgabe) => setDb((d) => {
@@ -372,7 +383,7 @@ function StoreProvider({ children }) {
           ? { ...g, betriebsstunden: stamp.stunden || g.betriebsstunden, protokoll: [eintrag, ...(g.protokoll || [])] }
           : g);
       }
-      return { ...d, auftraege, flotte };
+      return { ...d, auftraege, flotte, verlauf: withLog(d, 'rueckgabe', 'Rückgabe erfasst · Auftrag abgeschlossen' + (stamp.zustand === 'maengel' ? ' (Mängel)' : ''), id) };
     }),
     // Geräte-Logbuch: manuelle Einträge (Mangel/Reparatur/Notiz)
     geraetProtokollAdd: (geraetId, entry) => setDb((d) => ({ ...d, flotte: d.flotte.map((g) => g.id === geraetId ? { ...g, protokoll: [{ id: 'log_' + Date.now(), datum: today, fotos: [], ...entry }, ...(g.protokoll || [])] } : g) })),
@@ -388,7 +399,7 @@ function StoreProvider({ children }) {
         rechnungen = d.rechnungen.map((r) => r.id === a.rechnungId && r.status === 'bezahlt'
           ? { ...r, status: r.faellig && r.faellig < today ? 'ueberfaellig' : 'offen', bezahltAm: undefined } : r);
       }
-      return { ...d, rechnungen, auftraege: d.auftraege.map((x) => x.id === id ? { ...x, status } : x) };
+      return { ...d, rechnungen, auftraege: d.auftraege.map((x) => x.id === id ? { ...x, status } : x), verlauf: withLog(d, 'status', 'Status korrigiert auf: ' + (VERLAUF_STATUS_LBL[status] || status), id) };
     }),
     // Mietvertrag: eine Partei unterschreibt. Sind beide Unterschriften da → Mietvertrag UND das verknüpfte
     // Angebot sperren (read-only). Die Rechnung bleibt bewusst editierbar (z. B. für Nachberechnungen).
@@ -419,7 +430,8 @@ function StoreProvider({ children }) {
       });
       // Verknüpftes Angebot mitsperren, sobald der Vertrag beidseitig unterschrieben ist
       const angebote = lockAngebotId ? d.angebote.map((x) => x.id === lockAngebotId ? { ...x, gesperrt: true } : x) : d.angebote;
-      return { ...d, auftraege, angebote };
+      const txt = lockAngebotId ? 'Mietvertrag beidseitig unterschrieben → Gerät übergeben' : ('Mietvertrag unterschrieben (' + (who === 'm' ? 'Mieter' : 'Vermieter') + ')');
+      return { ...d, auftraege, angebote, verlauf: withLog(d, 'mietvertrag', txt, auftragId) };
     }),
     // Mietvertrag-Inhalt eigenständig bearbeiten (Positionen, Zeitraum). Nur solange nicht gesperrt.
     mietvertragUpdate: (auftragId, patch) => setDb((d) => ({
@@ -501,9 +513,12 @@ function StoreProvider({ children }) {
     // Versand festhalten (Datum + Kanal) – für Angebot, Rechnung und Mietvertrag (am Auftrag).
     belegVersendet: (kind, id, kanal) => setDb((d) => {
       const stamp = { versendetAm: today, versendetUeber: kanal || null };
-      if (kind === 'rechnung') return { ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, ...stamp } : r) };
-      if (kind === 'mietvertrag') return { ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, mietvertrag: { ...(a.mietvertrag || {}), ...stamp } } : a) };
-      return { ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...stamp } : a) };
+      const kindLbl = kind === 'rechnung' ? 'Rechnung' : kind === 'mietvertrag' ? 'Mietvertrag' : 'Angebot';
+      const txt = kindLbl + ' versendet' + (kanal ? ' (' + kanal + ')' : '');
+      if (kind === 'rechnung') { const r0 = d.rechnungen.find((r) => r.id === id) || {}; return { ...d, rechnungen: d.rechnungen.map((r) => r.id === id ? { ...r, ...stamp } : r), verlauf: withLog(d, 'rechnung', txt, r0.auftragId) }; }
+      if (kind === 'mietvertrag') return { ...d, auftraege: d.auftraege.map((a) => a.id === id ? { ...a, mietvertrag: { ...(a.mietvertrag || {}), ...stamp } } : a), verlauf: withLog(d, 'mietvertrag', txt, id) };
+      const a0 = d.angebote.find((a) => a.id === id) || {};
+      return { ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...stamp } : a), verlauf: withLog(d, 'angebot', txt, a0.auftragId) };
     }),
     updateAngebot: (id, patch) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...patch } : a) })),
     addTerminFromAngebot: (angebotId, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort) => {
@@ -518,7 +533,7 @@ function StoreProvider({ children }) {
       });
     },
     updateBuchung: (id, patch) => setDb((d) => ({ ...d, buchungen: d.buchungen.map((b) => b.id === id ? { ...b, ...patch } : b) })),
-    addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [ensureAnfrageGeraete({ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }), ...d.anfragen] })),
+    addAnfrage: (data) => setDb((d) => ({ ...d, anfragen: [ensureAnfrageGeraete({ ...data, id: 'anf' + Date.now(), datum: today, status: 'neu' }), ...d.anfragen], verlauf: withLog(d, 'anfrage', 'Anfrage erfasst' + (data && data.name ? ' · ' + data.name : ''), null) })),
     // Anfrage annehmen → schlanken Auftrag (Status 'anfrage') anlegen, Kunde ggf. neu, Anfrage erledigt.
     // IDs werden vom Aufrufer vorab via store.nextId berechnet; alles atomar in EINEM Update.
     annehmenAnfrage: ({ anfrageId, auftragId, kundeId, neuerKunde, auftrag }) => {
@@ -526,7 +541,7 @@ function StoreProvider({ children }) {
         let kunden = d.kunden, kId = kundeId;
         if (neuerKunde) { kId = neuerKunde.id; kunden = [...d.kunden, neuerKunde]; }
         const a = ensureGeraete({ typ: 'vermietung', anfrageId, angebotId: null, rechnungId: null, notiz: '', ort: '', vonZeit: '08:00', bisZeit: '17:00', status: 'anfrage', ...auftrag, id: auftragId, kundeId: kId });
-        return { ...d, kunden, auftraege: [...d.auftraege, a], anfragen: d.anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x) };
+        return { ...d, kunden, auftraege: [...d.auftraege, a], anfragen: d.anfragen.map((x) => x.id === anfrageId ? { ...x, status: 'erledigt' } : x), verlauf: withLog(d, 'auftrag', 'Auftrag ' + auftragId + ' aus Anfrage angelegt', auftragId) };
       });
     },
     setAnfrageStatus: (id, status) => setDb((d) => ({ ...d, anfragen: d.anfragen.map((a) => a.id === id ? { ...a, status } : a) })),
