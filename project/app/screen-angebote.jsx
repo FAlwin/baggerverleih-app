@@ -5,44 +5,25 @@ const { useState: agS, useMemo: agM } = React;
 // ---- Versenden-Modal (generisch: Angebot / Rechnung / Mietvertrag) ----
 function VersendModal({ kind = 'angebot', beleg, angebot, kunde, company, fmtEUR, fmtDate, onSend, onClose }) {
   const F = window.FRIESEN;
+  const store = window.useStore();
   const tel = (s) => s ? s.replace(/[^0-9]/g, '').replace(/^0/, '49') : '';
   const b = beleg || angebot; // Abwärtskompatibel: alter Aufruf mit angebot=
   const LABEL = { angebot: 'Angebot', rechnung: 'Rechnung', mietvertrag: 'Mietvertrag' }[kind] || 'Beleg';
 
-  const kopf = kind === 'rechnung'
-    ? `hiermit erhalten Sie unsere Rechnung ${b.id} vom ${fmtDate(b.datum)}.`
-    : kind === 'mietvertrag'
-      ? `anbei der Mietvertrag zu Ihrer Anmietung (${b.id}).`
-      : `hiermit erhalten Sie unser Angebot ${b.id} vom ${fmtDate(b.datum)}.`;
-  const fuss = kind === 'rechnung'
-    ? `Bitte überweisen Sie den Gesamtbetrag bis zum ${fmtDate(b.faellig)} unter Angabe der Rechnungsnummer ${b.id}.`
-    : kind === 'mietvertrag'
-      ? `Bitte bringen Sie den unterschriebenen Mietvertrag zur Geräteübergabe mit, oder antworten Sie auf diese Nachricht.`
-      : `Bei Fragen oder zur Auftragsbestätigung antworten Sie einfach auf diese Nachricht oder rufen Sie uns an:`;
-
-  const msgText = [
-    ...(kind === 'angebot' && b.dringend ? ['🔴 DRINGEND – bitte möglichst kurzfristig zusagen, der Wunschtermin steht bald an.', ''] : []),
-    `Hallo ${kunde.name},`,
-    ``,
-    kopf,
-    ``,
-    `Leistungen:`,
-    ...(b.positionen || []).map((p) => `  • ${p.text} (${p.menge}× ${p.einheit}) — ${fmtEUR(p.menge * p.preis)}`),
-    ``,
-    `Gesamtbetrag: ${fmtEUR(b.betrag != null ? b.betrag : (b.positionen || []).reduce((a, p) => a + p.menge * p.preis, 0))}`,
-    ...(kind === 'angebot' ? [`Gültig bis: ${fmtDate(b.gueltigBis)}`] : []),
-    ...(kind === 'rechnung' ? [`Fällig bis: ${fmtDate(b.faellig)}`] : []),
-    ``,
-    `Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.`,
-    ``,
-    fuss,
-    `${company.phone}`,
-    ``,
-    `Das Dokument als PDF hängen Sie bitte aus der App an (Button „Drucken / als PDF").`,
-    ``,
-    `Mit freundlichen Grüßen`,
-    `${company.owner} · ${company.name}`,
-  ].join('\n');
+  // Text aus den in den Einstellungen hinterlegten Vorlagen aufbauen (Platzhalter {…} ersetzen).
+  const leistungen = (b.positionen || []).map((p) => `  • ${p.text} (${p.menge}× ${p.einheit}) — ${fmtEUR(p.menge * p.preis)}`).join('\n');
+  const gesamt = fmtEUR(b.betrag != null ? b.betrag : (b.positionen || []).reduce((a, p) => a + p.menge * p.preis, 0));
+  const repl = {
+    kunde: kunde.name || '', nummer: b.id || '', datum: b.datum ? fmtDate(b.datum) : '',
+    betrag: gesamt, faellig: b.faellig ? fmtDate(b.faellig) : '', gueltig: b.gueltigBis ? fmtDate(b.gueltigBis) : '',
+    leistungen, firma: company.name || '', inhaber: company.owner || '', telefon: company.phone || '',
+  };
+  const vorlagen = (store.db.settings && store.db.settings.versandTexte) || (F.SETTINGS && F.SETTINGS.versandTexte) || {};
+  const tmpl = vorlagen[kind] || '';
+  const rohtext = tmpl.replace(/\{(\w+)\}/g, (m, k) => (k in repl ? repl[k] : m));
+  const msgText = (kind === 'angebot' && b.dringend
+    ? '🔴 DRINGEND – bitte möglichst kurzfristig zusagen, der Wunschtermin steht bald an.\n\n'
+    : '') + rohtext;
 
   const subject = encodeURIComponent(`${LABEL} ${b.id} – ${company.name}`);
   const body = encodeURIComponent(msgText);

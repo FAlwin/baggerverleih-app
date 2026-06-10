@@ -30,7 +30,7 @@
 
 /* ---- Mobile (≤900px) — Bottom-Nav-App-Mode ---- */
 @media (max-width: 900px) {
-  .content-pad { padding: 14px 16px 88px; }
+  .content-pad { padding: 14px 16px calc(88px + env(safe-area-inset-bottom)); }
   .form-2, .split-2 { grid-template-columns: 1fr; gap: 12px; }
   .dash-strip { grid-template-columns: repeat(2, 1fr); }
   .dash-cols  { grid-template-columns: 1fr; gap: 14px; }
@@ -43,7 +43,7 @@
 
 /* ---- Very small (≤400px) ---- */
 @media (max-width: 400px) {
-  .content-pad { padding: 12px 12px 88px; }
+  .content-pad { padding: 12px 12px calc(88px + env(safe-area-inset-bottom)); }
   .dash-strip { grid-template-columns: 1fr 1fr; }
 }
 
