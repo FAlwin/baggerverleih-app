@@ -258,11 +258,18 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   }
 
   // Reserviert → Gerät übergeben (Im Einsatz). Wird automatisch bei MV-Unterschrift gesetzt; hier auch manuell.
-  if (a.status === 'reserviert') return {
-    primary: { label: 'Gerät übergeben (Im Einsatz)', icon: 'arrowRight', hint: 'Wird automatisch gesetzt, sobald der Mietvertrag beidseitig unterschrieben ist.',
-      action: () => { store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert'); } },
-    secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
-  };
+  if (a.status === 'reserviert') {
+    const mvSigned = !!(a.mietvertrag && a.mietvertrag.signaturMieter && a.mietvertrag.signaturVermieter);
+    return {
+      primary: { label: 'Gerät übergeben (Im Einsatz)', icon: 'arrowRight',
+        hint: mvSigned ? 'Mietvertrag ist beidseitig unterschrieben – Übergabe kann erfolgen.' : 'Bei der Übergabe sollte der Mietvertrag unterschrieben werden (Abschnitt „Mietvertrag").',
+        action: () => {
+          if (!mvSigned && !window.confirm('Der Mietvertrag ist noch nicht beidseitig unterschrieben.\n\nGerät trotzdem als übergeben („Im Einsatz") markieren?\n\nTipp: Den Mietvertrag im Auftrag erstellen und unterschreiben lassen.')) return;
+          store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert');
+        } },
+      secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
+    };
+  }
   // Im Einsatz → Rückgabe (Einsatz beenden), dann Rechnung, dann Zahlung.
   if (a.status === 'einsatz') return {
     primary: { label: 'Rückgabe & Abschluss', icon: 'check', hint: 'Einsatz beenden: Rückgabe erfassen (Zustand, Betankung, Betriebsstunden). Danach folgt die Rechnung.',
