@@ -106,7 +106,7 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
   return (
     <>
       <PageHeader kicker="Verwaltung" title="Aufträge" mobile={mobile} onMenu={onMenu}>
-        <window.UI.Btn icon="plus" onClick={() => setNeuOpen(true)}>{mobile ? 'Neu' : 'Neuer Auftrag'}</window.UI.Btn>
+        <window.NeuButton nav={nav} />
       </PageHeader>
 
       {/* Neuer-Auftrag-Auswahl */}
@@ -244,10 +244,17 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
     };
   }
 
-  // Nach der Reservierung: erst Rückgabe (Einsatz beenden), dann Rechnung, dann Zahlung.
+  // Reserviert → Gerät übergeben (Im Einsatz). Wird automatisch bei MV-Unterschrift gesetzt; hier auch manuell.
   if (a.status === 'reserviert') return {
+    primary: { label: 'Gerät übergeben (Im Einsatz)', icon: 'arrowRight', hint: 'Wird automatisch gesetzt, sobald der Mietvertrag beidseitig unterschrieben ist.',
+      action: () => { store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert'); } },
+    secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
+  };
+  // Im Einsatz → Rückgabe (Einsatz beenden), dann Rechnung, dann Zahlung.
+  if (a.status === 'einsatz') return {
     primary: { label: 'Rückgabe & Abschluss', icon: 'check', hint: 'Einsatz beenden: Rückgabe erfassen (Zustand, Betankung, Betriebsstunden). Danach folgt die Rechnung.',
       action: () => ui.openRueckgabe ? ui.openRueckgabe() : (store.setAuftragStatus(id, 'abgeschlossen'), toast('Einsatz abgeschlossen')) },
+    secondary: { label: 'Doch nicht übergeben', action: () => { store.setAuftragStatus(id, 'reserviert'); toast('Zurück auf „Reserviert"'); } },
   };
   if (a.status === 'abgeschlossen') {
     if (!rechnung) return { primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Rechnung auf Basis des Einsatzes erstellen.', action: rechnungSchreiben } };
@@ -261,8 +268,9 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   return null; // bezahlt = Endzustand
 }
 
-// läuft die Vermietung gerade? (heute im Zeitraum, schon gebucht, noch nicht abgeschlossen)
+// läuft die Vermietung gerade? Status „Im Einsatz" immer; sonst aus dem Datum abgeleitet.
 function laeuftGerade(a, today) {
+  if (a.status === 'einsatz') return true;
   return today >= a.von && today <= a.bis && ['reserviert', 'abgerechnet'].includes(a.status);
 }
 
@@ -343,7 +351,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
               )}
             </div>
           )}
-          {['reserviert', 'abgerechnet', 'bezahlt'].includes(a.status) && (
+          {['reserviert', 'einsatz', 'abgerechnet', 'bezahlt'].includes(a.status) && (
             <div style={{ marginTop: 12, textAlign: 'center' }}>
               <window.UI.Btn variant="ghost" icon="clock" onClick={() => setVerlOpen(true)} style={{ width: '100%' }}>Auftrag verlängern</window.UI.Btn>
             </div>

@@ -50,6 +50,16 @@
 /* Countdown-Balken im Undo-/Aktions-Toast */
 @keyframes toastbar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
+/* Toast-Position: Desktop unten; mobil über der Bottom-Navi (inkl. Safe-Area) */
+.fr-toasts { bottom: 22px; }
+@media (max-width: 900px) {
+  .fr-toasts { bottom: calc(70px + env(safe-area-inset-bottom)); }
+}
+
+/* Drawer/Modal: mobil von unten einfahren */
+@keyframes drawerUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
 /* ===================== DRUCK / PDF (A4) ===================== */
 .print-doc { display: none; }
 

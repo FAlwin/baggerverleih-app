@@ -107,6 +107,16 @@ function loadDB() {
       const db = JSON.parse(raw);
       // Defensiv: fehlende Felder aus den Defaults ergänzen (z. B. settings bei Alt-Ständen)
       if (!db.belegungen) db.belegungen = [];
+      // Geräte aus Alt-Ständen um neue Felder (Abrechnungsmodell, Zusatzleistungen) ergänzen
+      if (Array.isArray(db.flotte)) {
+        db.flotte = db.flotte.map((g) => {
+          const seed = (F.FLOTTE || []).find((s) => s.id === g.id);
+          const out = { ...g };
+          if (out.modell == null) out.modell = (seed && seed.modell) || 'tag';
+          if (!Array.isArray(out.zusatz)) out.zusatz = seed ? JSON.parse(JSON.stringify(seed.zusatz || [])) : [];
+          return out;
+        });
+      }
       db.settings = { ...JSON.parse(JSON.stringify(F.SETTINGS)), ...(db.settings || {}) };
       db.settings.nummern = { ...JSON.parse(JSON.stringify(F.SETTINGS.nummern)), ...(db.settings.nummern || {}) };
       if (!Array.isArray(db.settings.mietWochentage)) db.settings.mietWochentage = JSON.parse(JSON.stringify(F.SETTINGS.mietWochentage));
@@ -401,8 +411,11 @@ function StoreProvider({ children }) {
         }
         if (mv.von == null) mv.von = a.von || null;
         if (mv.bis == null) mv.bis = a.bis || null;
-        if (mv.signaturVermieter && mv.signaturMieter) { mv.gesperrt = true; lockAngebotId = a.angebotId || null; }
-        return { ...a, mietvertrag: mv };
+        const beide = mv.signaturVermieter && mv.signaturMieter;
+        if (beide) { mv.gesperrt = true; lockAngebotId = a.angebotId || null; }
+        // Beidseitig unterschrieben = Übergabe → Gerät „Im Einsatz" (nur aus reserviert heraus).
+        const status = (beide && a.status === 'reserviert') ? 'einsatz' : a.status;
+        return { ...a, mietvertrag: mv, status };
       });
       // Verknüpftes Angebot mitsperren, sobald der Vertrag beidseitig unterschrieben ist
       const angebote = lockAngebotId ? d.angebote.map((x) => x.id === lockAngebotId ? { ...x, gesperrt: true } : x) : d.angebote;

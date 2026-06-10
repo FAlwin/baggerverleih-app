@@ -151,8 +151,44 @@ function Pill({ status, label, style }) {
   );
 }
 
+// Einheitlicher „Neu"-Button (Kopfzeile): primär → neue Anfrage; Pfeil → weitere Optionen (Direktbuchung).
+// onNeu optional: überschreibt die Primär-Aktion (z. B. auf der Anfragen-Seite direkt das Formular öffnen).
+function NeuButton({ nav, onNeu }) {
+  const [open, setOpen] = React.useState(false);
+  const ITEMS = [
+    { icon: 'bell',   label: 'Neue Anfrage',                     sub: 'Kundenanfrage erfassen',                go: ['anfragen', { neu: 1 }] },
+    { icon: 'flotte', label: 'Direkt buchen (Privat/Reparatur)', sub: 'Maschine ohne Kunde sperren',           go: ['kalender', { neu: 'belegung' }] },
+  ];
+  const prim = onNeu || (() => nav('anfragen', { neu: 1 }));
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <window.UI.Btn icon="plus" onClick={prim}>Neu</window.UI.Btn>
+      <window.UI.IconBtn name="chevronD" title="Weitere Optionen" onClick={() => setOpen((v) => !v)} />
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
+          <div style={{ position: 'absolute', top: 46, right: 0, zIndex: 50, background: 'var(--paper)', border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', boxShadow: 'var(--shadow-lg)', minWidth: 240, overflow: 'hidden' }}>
+            {ITEMS.map((item, i) => (
+              <button key={item.label} onClick={() => { setOpen(false); if (i === 0 && onNeu) onNeu(); else nav(...item.go); }} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '13px 16px', border: 'none', borderTop: i ? '1px solid var(--paper-3)' : 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                <div style={{ width: 34, height: 34, borderRadius: 'var(--r)', background: 'var(--yellow)', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>
+                  <Icon name={item.icon} size={17} color="var(--ink)" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{item.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{item.sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 window.NAV = NAV;
 window.Logo = Logo;
 window.Sidebar = Sidebar;
 window.Pill = Pill;
+window.NeuButton = NeuButton;
 window.STATUS_COLOR = STATUS_COLOR;

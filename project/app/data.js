@@ -20,26 +20,58 @@
     gewerbebeginn: '01.04.2026',
   };
 
-  // Flotte / Gerätepark — inkl. editierbares Tarif (Einheiten + Preise)
+  // Abrechnungsmodell eines Geräts (steuert später die Zeitachse im Anfrage-Screen)
+  //   tag     = ganze Miettage (Bagger, Rüttler)
+  //   stunde  = freie Stundenwahl
+  //   staffel = feste Blocklängen aus dem Tarif (Anhänger: 4h / 8h / Tag), auf der Zeitachse verschiebbar
+  const ABRECHNUNG_MODELLE = {
+    tag:     { label: 'Tagesweise',        kurz: 'Tag' },
+    stunde:  { label: 'Stundenweise',      kurz: 'Std' },
+    staffel: { label: 'Staffel (Blöcke)',  kurz: 'Block' },
+  };
+
+  // Zusatzleistungen, die einem Gerät zugewiesen werden können (erscheinen im Anfrage-Screen als zuschaltbare Positionen).
+  //   stunde     → pro Stunde, Zeitfenster NUR innerhalb des Geräte-Zeitraums (z. B. Fahrer 25 €/Std)
+  //   stueckTag  → pro Stück und Miettag, optional erste N inklusive (z. B. Zusatz-Löffel ab 2. = inklusive 1)
+  //   auswahl    → Mehrfachauswahl konkreter Geräte (z. B. Löffel), Pool-Regel: erste N inklusive (0 €), jeder weitere preis €/Stück·Tag
+  //   anfahrt    → Transport-Pauschalen + km-Satz (≤15 km / ≤30 km / je km darüber)
+  //   pauschale  → einmalige Pauschale (z. B. Reinigung 100 €)
+  const ZUSATZ_ARTEN = {
+    stunde:    { label: 'Pro Stunde',              kurz: '€/Std',      felder: ['preis'] },
+    stueckTag: { label: 'Pro Stück & Tag',         kurz: '€/Stk·Tag',  felder: ['preis', 'inklusive'] },
+    auswahl:   { label: 'Anbau-Auswahl (Löffel …)', kurz: 'Auswahl',   felder: ['inklusive', 'preis'], geraete: true },
+    anfahrt:   { label: 'Anfahrt / Transport',     kurz: 'km-Staffel', felder: ['p15', 'p30', 'kmSatz'] },
+    pauschale: { label: 'Pauschale',               kurz: '€ einmalig', felder: ['preis'] },
+  };
+
+  // Flotte / Gerätepark — inkl. editierbares Tarif (Einheiten + Preise), Abrechnungsmodell und Zusatzleistungen
   const FLOTTE = [
     { id: 'bagger',    name: '1,9t Minibagger', detail: 'Hitachi ZX18-3 CLR · Bj. 2014 · ohne Fahrer, inkl. ein Löffel', kat: 'Maschine',
-      kuerzel: 'BA', farbe: '#F7C72A',
-      tarif: [{ einheit: 'Tag', preis: 60 }] },
+      kuerzel: 'BA', farbe: '#F7C72A', modell: 'tag',
+      tarif: [{ einheit: 'Tag', preis: 60 }],
+      zusatz: [
+        { id: 'z_fahrer',    art: 'stunde',    label: 'Mit Fahrer',           preis: 25 },
+        { id: 'z_loeffel',   art: 'auswahl',   label: 'Löffel / Anbaugerät',  geraetIds: ['tl40', 'tl60', 'grl'], inklusive: 1, preis: 5 },
+        { id: 'z_anfahrt',   art: 'anfahrt',   label: 'Transport / Anfahrt',  p15: 50, p30: 100, kmSatz: 1 },
+        { id: 'z_reinigung', art: 'pauschale', label: 'Reinigungspauschale',  preis: 100 },
+      ] },
     { id: 'anhaenger', name: 'Plateauanhänger', detail: '2.700 kg GVW · 2×4 m · Auffahrrampen', kat: 'Transport',
-      kuerzel: 'PL', farbe: '#2B6CB0',
-      tarif: [{ einheit: '4 Stunden', preis: 35 }, { einheit: '8 Stunden', preis: 50 }, { einheit: 'Tag', preis: 60 }] },
+      kuerzel: 'PL', farbe: '#2B6CB0', modell: 'staffel',
+      tarif: [{ einheit: '4 Stunden', preis: 35 }, { einheit: '8 Stunden', preis: 50 }, { einheit: 'Tag', preis: 60 }],
+      zusatz: [] },
     { id: 'ruettler',  name: 'Betonrüttler', detail: 'Betrieb 230 V Stromanschluss', kat: 'Maschine',
-      kuerzel: 'RÜ', farbe: '#8B5E3C',
-      tarif: [{ einheit: 'Tag', preis: 20 }] },
+      kuerzel: 'RÜ', farbe: '#8B5E3C', modell: 'tag',
+      tarif: [{ einheit: 'Tag', preis: 20 }],
+      zusatz: [] },
     { id: 'tl40',      name: 'Tieflöffel 40 cm', detail: 'Anbaugerät Bagger', kat: 'Anbau',
-      kuerzel: 'TL', farbe: '#6B6B66',
-      tarif: [{ einheit: 'inklusive', preis: 0 }] },
+      kuerzel: 'TL', farbe: '#6B6B66', modell: 'tag',
+      tarif: [{ einheit: 'inklusive', preis: 0 }], zusatz: [] },
     { id: 'tl60',      name: 'Tieflöffel 60 cm', detail: 'Anbaugerät Bagger', kat: 'Anbau',
-      kuerzel: 'TL', farbe: '#6B6B66',
-      tarif: [{ einheit: 'inklusive', preis: 0 }] },
+      kuerzel: 'TL', farbe: '#6B6B66', modell: 'tag',
+      tarif: [{ einheit: 'inklusive', preis: 0 }], zusatz: [] },
     { id: 'grl',       name: 'Grabenräumlöffel 1,00 m', detail: 'Anbaugerät Bagger', kat: 'Anbau',
-      kuerzel: 'GR', farbe: '#6B6B66',
-      tarif: [{ einheit: 'inklusive', preis: 0 }] },
+      kuerzel: 'GR', farbe: '#6B6B66', modell: 'tag',
+      tarif: [{ einheit: 'inklusive', preis: 0 }], zusatz: [] },
   ];
 
   // Sonstige Servicepositionen (laut Preisliste). Transport: Pauschalen + km-Satz über 30 km.
@@ -210,9 +242,15 @@
     wartung:        { label: 'Wartung',         cls: 'danger' },
   };
 
-  // Lebenszyklus eines Vermietungs-Auftrags (für die Statuszeile/Stepper)
-  // 'einsatz' ist kein manueller Schritt mehr – „läuft gerade" wird aus dem Datum abgeleitet.
-  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'abgeschlossen', 'abgerechnet', 'bezahlt'];
+  // Lebenszyklus eines Vermietungs-Auftrags (für die Statuszeile/Stepper).
+  // 'einsatz' = Gerät beim Kunden: wird bei beidseitiger Mietvertrag-Unterschrift gesetzt (oder manuell).
+  const AUFTRAG_FLOW = ['anfrage', 'angebot', 'reserviert', 'einsatz', 'abgeschlossen', 'abgerechnet', 'bezahlt'];
+  // Kompakte Darstellung: drei Oberthemen mit Zwischenschritten (für den Stepper).
+  const AUFTRAG_PHASEN = [
+    { key: 'planung',   label: 'Planung',   steps: ['anfrage', 'angebot'] },
+    { key: 'einsatz',   label: 'Einsatz',   steps: ['reserviert', 'einsatz', 'abgeschlossen'] },
+    { key: 'abschluss', label: 'Abschluss', steps: ['abgerechnet', 'bezahlt'] },
+  ];
   const AUFTRAG_TYP = {
     vermietung:   { label: 'Vermietung',   farbe: '#2B6CB0' },
     eigennutzung: { label: 'Eigennutzung', farbe: '#6B6B66' },
@@ -298,9 +336,18 @@
     };
   }
 
+  // Ist ein Gerät eigenständig vermietbar? Explizites Feld `vermietbar` schlägt die Kategorie-Ableitung.
+  // Standard: Maschine/Transport = ja, Anbau/Zubehör = nein (bis pro Gerät aktiviert).
+  function istVermietbar(g) {
+    if (!g) return false;
+    if (g.vermietbar != null) return !!g.vermietbar;
+    return g.kat === 'Maschine' || g.kat === 'Transport';
+  }
+  window.istVermietbar = istVermietbar;
+
   window.FRIESEN = {
     COMPANY, FLOTTE, PREISLISTE, KUNDEN, RECHNUNGEN, ANGEBOTE, AUFTRAEGE, BELEGUNGEN, BUCHUNGEN, ANFRAGEN, STATUS,
-    AUFTRAG_FLOW, AUFTRAG_TYP, BELEGUNG_GRUND, SETTINGS,
+    AUFTRAG_FLOW, AUFTRAG_PHASEN, AUFTRAG_TYP, BELEGUNG_GRUND, SETTINGS, ABRECHNUNG_MODELLE, ZUSATZ_ARTEN, istVermietbar,
     fmtEUR, fmtDate, kundeById, geraetById, computeMetrics, APP_TODAY, WEEK,
     // Kennzahlen für die statischen Canvas-Mockups (Dashboard-Varianten)
     metrics: computeMetrics({ rechnungen: RECHNUNGEN, angebote: ANGEBOTE, auftraege: AUFTRAEGE }),

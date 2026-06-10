@@ -5,12 +5,71 @@ const { useState: flS, useRef: flR } = React;
 const FARBEN = ['#F7C72A','#F39222','#B5D334','#3FB6D3','#2B6CB0','#8B5E3C','#6B6B66','#141414'];
 const KATS   = ['Maschine', 'Transport', 'Anbau', 'Elektro', 'Sonstiges'];
 
+// Farbakzent je Zusatzart (für Editor + Karten-Chips)
+const ART_FARBE = { stunde: '#3FB6D3', stueckTag: '#B5D334', auswahl: '#F7C72A', anfahrt: '#2B6CB0', pauschale: '#8B5E3C' };
+
+// Kompakter Preistext einer Zusatzleistung (auch im Anfrage-Screen, Phase 2, genutzt)
+window.zusatzPreisText = function zusatzPreisText(z, F, kurz) {
+  const eur = (n) => F ? F.fmtEUR(n) : (n + ' €');
+  if (kurz) {
+    switch (z.art) {
+      case 'stunde':    return eur(z.preis) + '/Std';
+      case 'stueckTag': return eur(z.preis) + '/Tag';
+      case 'auswahl':   return (z.inklusive ? z.inklusive + ' inkl. · ' : '') + '+' + eur(z.preis);
+      case 'anfahrt':   return 'ab ' + eur(z.p15);
+      case 'pauschale': return eur(z.preis);
+      default:          return '';
+    }
+  }
+  switch (z.art) {
+    case 'stunde':    return eur(z.preis) + '/Std';
+    case 'stueckTag': return eur(z.preis) + '/Stk·Tag' + (z.inklusive ? ' · ab ' + (z.inklusive + 1) + '.' : '');
+    case 'auswahl':   return (z.inklusive ? z.inklusive + ' inkl. · ' : '') + 'weitere ' + eur(z.preis) + '/Stk·Tag';
+    case 'anfahrt':   return eur(z.p15) + ' / ' + eur(z.p30) + ' / +' + eur(z.kmSatz) + '/km';
+    case 'pauschale': return eur(z.preis) + ' pauschal';
+    default:          return '';
+  }
+};
+const zusatzPreisText = window.zusatzPreisText;
+
+const ZUSATZ_FELD_META = {
+  preis:     { label: 'Preis €',     ph: '€' },
+  inklusive: { label: 'inkl. (Stk)', ph: '0' },
+  p15:       { label: '≤15 km €',    ph: '€' },
+  p30:       { label: '≤30 km €',    ph: '€' },
+  kmSatz:    { label: '€/km >30',    ph: '€' },
+};
+
 function GeraetModalForm({ init, onSave, onClose }) {
-  const [g, setG] = flS({ kuerzel:'', farbe:'#F7C72A', kat:'Maschine', tarif:[], foto:null, ...init });
+  const F = window.FRIESEN;
+  const store = window.useStore();
+  const MODELLE = F.ABRECHNUNG_MODELLE;
+  const ARTEN = F.ZUSATZ_ARTEN;
+  // wählbare Anbaugeräte für die Auswahl-Zusatzart (z. B. Löffel) – das Gerät selbst ausgenommen
+  const anbauGeraete = (store.db.flotte || []).filter((x) => x.kat === 'Anbau' && x.id !== (init && init.id));
+  const [g, setG] = flS({ kuerzel:'', farbe:'#F7C72A', kat:'Maschine', modell:'tag', tarif:[], zusatz:[], foto:null, ...init });
   const fileRef = flR();
   const setT = (i, patch) => setG((x) => ({ ...x, tarif: x.tarif.map((r, j) => j === i ? { ...r, ...patch } : r) }));
   const addRow = () => setG((x) => ({ ...x, tarif: [...x.tarif, { einheit: '', preis: 0 }] }));
   const removeRow = (i) => setG((x) => ({ ...x, tarif: x.tarif.filter((_, j) => j !== i) }));
+  // Zusatzleistungen
+  const zArr = g.zusatz || [];
+  const setZ = (i, patch) => setG((x) => ({ ...x, zusatz: (x.zusatz || []).map((r, j) => j === i ? { ...r, ...patch } : r) }));
+  const addZ = () => setG((x) => ({ ...x, zusatz: [...(x.zusatz || []), { id: 'z' + Date.now(), art: 'pauschale', label: '', preis: 0 }] }));
+  const removeZ = (i) => setG((x) => ({ ...x, zusatz: (x.zusatz || []).filter((_, j) => j !== i) }));
+  // beim Wechsel der Art die art-fremden Felder bereinigen, damit keine Altwerte hängen bleiben
+  const setZArt = (i, art) => setG((x) => ({ ...x, zusatz: (x.zusatz || []).map((r, j) => {
+    if (j !== i) return r;
+    const keep = { id: r.id, art, label: r.label };
+    (ARTEN[art].felder || []).forEach((f) => { keep[f] = r[f] != null ? r[f] : 0; });
+    if (ARTEN[art].geraete) keep.geraetIds = Array.isArray(r.geraetIds) ? r.geraetIds : [];
+    return keep;
+  }) }));
+  const toggleZGeraet = (i, gid) => setG((x) => ({ ...x, zusatz: (x.zusatz || []).map((r, j) => {
+    if (j !== i) return r;
+    const ids = Array.isArray(r.geraetIds) ? r.geraetIds : [];
+    return { ...r, geraetIds: ids.includes(gid) ? ids.filter((id) => id !== gid) : [...ids, gid] };
+  }) }));
   const pickFile = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -52,6 +111,28 @@ function GeraetModalForm({ init, onSave, onClose }) {
             </div>
           </window.UI.Field>
         </div>
+        {(() => {
+          const verm = window.istVermietbar(g);
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', border: '1px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper-2)' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>Einzeln vermietbar</div>
+                <div className="hint">Erscheint als eigenständiges Gerät in Anfrage &amp; Kalender. Bei Anbaugeräten/Zubehör optional.</div>
+              </div>
+              <button type="button" role="switch" aria-checked={verm} onClick={() => setG({ ...g, vermietbar: !verm })}
+                style={{ flex: '0 0 auto', width: 46, height: 27, borderRadius: 999, border: '1px solid ' + (verm ? 'var(--yellow-deep)' : 'var(--line-2)'), background: verm ? 'var(--yellow)' : 'var(--paper-3)', position: 'relative', cursor: 'pointer', transition: 'background .15s', padding: 0 }}>
+                <span style={{ position: 'absolute', top: 2, left: verm ? 21 : 2, width: 21, height: 21, borderRadius: 999, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.25)', transition: 'left .15s' }} />
+              </button>
+            </div>
+          );
+        })()}
+        {window.istVermietbar(g) && (
+          <window.UI.Field label="Abrechnung (steuert die Zeitwahl in der Anfrage)">
+            <window.UI.Select value={g.modell || 'tag'} onChange={(e) => setG({ ...g, modell: e.target.value })}>
+              {Object.entries(MODELLE).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+            </window.UI.Select>
+          </window.UI.Field>
+        )}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div className="kicker" style={{ color: 'var(--muted)' }}>Tarif</div>
@@ -66,6 +147,61 @@ function GeraetModalForm({ init, onSave, onClose }) {
                 <window.UI.IconBtn name="trash" size={15} onClick={() => removeRow(i)} style={{ width: 32, height: 32 }} />
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Zusatzleistungen — je Gerät zuweisbar, erscheinen im Anfrage-Screen als zuschaltbare Positionen */}
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <div className="kicker" style={{ color: 'var(--muted)' }}>Zusatzleistungen</div>
+            <window.UI.Btn size="sm" variant="soft" icon="plus" onClick={addZ}>Leistung</window.UI.Btn>
+          </div>
+          <div className="hint" style={{ marginBottom: 10 }}>z. B. Fahrer (pro Std), Zusatz-Löffel (pro Stück/Tag), Anfahrt oder Reinigung.</div>
+          {zArr.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Keine Zusatzleistungen für dieses Gerät.</div>}
+          <div className="stack" style={{ gap: 10 }}>
+            {zArr.map((z, i) => {
+              const farbe = ART_FARBE[z.art] || 'var(--line-2)';
+              return (
+              <div key={z.id || i} style={{ position: 'relative', border: '1px solid var(--line-2)', borderLeft: '3px solid ' + farbe, borderRadius: 'var(--r)', padding: '10px 12px', background: 'var(--paper)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <window.UI.Input value={z.label || ''} onChange={(e) => setZ(i, { label: e.target.value })} placeholder="Bezeichnung (z. B. Mit Fahrer)" style={{ fontSize: 13.5, fontWeight: 600, flex: 1 }} />
+                  <window.UI.IconBtn name="trash" size={15} onClick={() => removeZ(i)} style={{ width: 32, height: 32, flex: '0 0 auto' }} />
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginTop: 9 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', minWidth: 150 }}>
+                    Art
+                    <window.UI.Select value={z.art} onChange={(e) => setZArt(i, e.target.value)} style={{ fontSize: 13 }}>
+                      {Object.entries(ARTEN).map(([k, a]) => <option key={k} value={k}>{a.label}</option>)}
+                    </window.UI.Select>
+                  </label>
+                  {(ARTEN[z.art]?.felder || []).map((f) => (
+                    <label key={f} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {ZUSATZ_FELD_META[f]?.label || f}
+                      <window.UI.Input type="number" value={z[f] != null ? z[f] : 0} onChange={(e) => setZ(i, { [f]: Number(e.target.value) })} placeholder={ZUSATZ_FELD_META[f]?.ph || ''} style={{ fontSize: 13, textAlign: 'right', width: 88 }} />
+                    </label>
+                  ))}
+                </div>
+                {ARTEN[z.art]?.geraete && (
+                  <div style={{ marginTop: 10, borderTop: '1px dashed var(--line-2)', paddingTop: 9 }}>
+                    <div style={{ fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>Wählbare Geräte</div>
+                    {anbauGeraete.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted-2)' }}>Keine Anbaugeräte in der Flotte angelegt.</div>}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {anbauGeraete.map((ag) => {
+                        const on = Array.isArray(z.geraetIds) && z.geraetIds.includes(ag.id);
+                        return (
+                          <button key={ag.id} type="button" onClick={() => toggleZGeraet(i, ag.id)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontFamily: 'inherit', padding: '5px 11px', borderRadius: 999, cursor: 'pointer',
+                              background: on ? 'var(--yellow)' : 'var(--paper-2)', border: '1px solid ' + (on ? 'var(--yellow-deep)' : 'var(--line)'), color: 'var(--ink)', fontWeight: on ? 600 : 500 }}>
+                            <Icon name={on ? 'check' : 'plus'} size={12} /> {ag.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -156,7 +292,7 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
 
   const DevCard = ({ g }) => {
     const b = bookedToday(g.id);
-    const bookable = g.kat === 'Maschine' || g.kat === 'Transport';
+    const bookable = window.istVermietbar(g);
     return (
       <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
         {g.foto && <div style={{ height: 140, overflow: 'hidden' }}><img src={g.foto} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>}
@@ -182,7 +318,12 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
           </div>
           {g.tarif && g.tarif.length > 0 && (
             <div style={{ marginTop: 12, borderTop: '1px solid var(--paper-3)', paddingTop: 12 }}>
-              <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Tarif</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div className="kicker" style={{ color: 'var(--muted)' }}>Tarif</div>
+                {bookable && g.modell && (F.ABRECHNUNG_MODELLE[g.modell]) && (
+                  <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted-2)', background: 'var(--paper-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '1px 7px' }}>{F.ABRECHNUNG_MODELLE[g.modell].label}</span>
+                )}
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                 {g.tarif.map((r, i) => (
                   <div key={i} style={{ padding: '5px 10px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)' }}>
@@ -190,6 +331,27 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
                     <div className="num" style={{ fontWeight: 700, fontSize: 14, marginTop: 1 }}>{r.preis === 0 ? 'inkl.' : F.fmtEUR(r.preis)}</div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+          {g.zusatz && g.zusatz.length > 0 && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--paper-3)', paddingTop: 12 }}>
+              <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Zusatzleistungen</div>
+              <div className="stack" style={{ gap: 6 }}>
+                {g.zusatz.map((z) => {
+                  const namen = z.art === 'auswahl' && Array.isArray(z.geraetIds)
+                    ? z.geraetIds.map((id) => (store.geraetById(id) || {}).name).filter(Boolean).join(', ') : '';
+                  return (
+                    <div key={z.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '7px 10px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: '0 0 auto', width: 8, height: 8, borderRadius: 999, background: ART_FARBE[z.art] || 'var(--muted-2)' }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{z.label || F.ZUSATZ_ARTEN[z.art]?.label}</span>
+                        <span className="num" style={{ flex: '0 0 auto', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{zusatzPreisText(z, F, true)}</span>
+                      </div>
+                      {namen && <div style={{ fontSize: 11, color: 'var(--muted-2)', paddingLeft: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{namen}</div>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
