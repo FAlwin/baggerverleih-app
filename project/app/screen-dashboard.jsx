@@ -1,6 +1,100 @@
 /* ============ SCREEN: Dashboard (Variante B, live) ============ */
 window.Screens = window.Screens || {};
 
+// ---- Geräte-Standort: echte Karte (Leaflet/OpenStreetMap) mit Pins + Liste ----
+function GeraeteStandort({ store, nav }) {
+  const today = store.today;
+  const machines = (store.db.flotte || []).filter((g) => window.istVermietbar(g));
+  // Aktuell „draußen": Status „Im Einsatz" oder heute im Buchungszeitraum (reserviert/abgerechnet).
+  const outByGeraet = {};
+  (store.db.auftraege || []).forEach((a) => {
+    const gs = (a.geraete && a.geraete.length) ? a.geraete : [a];
+    gs.forEach((ge) => {
+      if (!ge.geraetId || outByGeraet[ge.geraetId]) return;
+      const drin = a.status === 'einsatz' || (today >= (ge.von || a.von) && today <= (ge.bis || a.bis) && ['reserviert', 'abgerechnet'].includes(a.status));
+      if (drin) outByGeraet[ge.geraetId] = a;
+    });
+  });
+  const rows = machines.map((g) => ({ g, a: outByGeraet[g.id] }));
+  const einsatz = rows.filter((r) => r.a && r.a.ort);
+  const key = einsatz.map((r) => r.g.id + '@' + r.a.ort).join('|');
+
+  const mapRef = React.useRef(null);
+  const mapObj = React.useRef(null);
+  const markers = React.useRef([]);
+  const cacheGet = () => { try { return JSON.parse(localStorage.getItem('friesen_geocache') || '{}'); } catch (e) { return {}; } };
+  const cacheSet = (c) => { try { localStorage.setItem('friesen_geocache', JSON.stringify(c)); } catch (e) {} };
+
+  React.useEffect(() => {
+    if (!window.L || !mapRef.current || mapObj.current) return;
+    const map = window.L.map(mapRef.current, { scrollWheelZoom: false }).setView([50.83, 7.21], 10);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    mapObj.current = map;
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 120);
+    return () => { try { map.remove(); } catch (e) {} mapObj.current = null; };
+  }, []);
+
+  React.useEffect(() => {
+    let abort = false;
+    (async () => {
+      if (!mapObj.current) return;
+      markers.current.forEach((m) => { try { m.remove(); } catch (e) {} });
+      markers.current = [];
+      const cache = cacheGet();
+      const pts = [];
+      for (const r of einsatz) {
+        const ort = r.a.ort;
+        let coord = cache[ort];
+        if (!coord) {
+          try {
+            const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(ort + ', Deutschland'));
+            const j = await res.json();
+            if (j && j[0]) { coord = { lat: +j[0].lat, lng: +j[0].lon }; cache[ort] = coord; cacheSet(cache); }
+          } catch (e) {}
+          await new Promise((res) => setTimeout(res, 1100)); // Nominatim-Ratelimit (1/s)
+        }
+        if (abort || !mapObj.current) return;
+        if (coord) {
+          const k = store.kundeById(r.a.kundeId);
+          const m = window.L.marker([coord.lat, coord.lng]).addTo(mapObj.current)
+            .bindPopup('<b>' + r.g.name + '</b><br>' + (k ? k.name : '') + '<br>' + ort);
+          markers.current.push(m);
+          pts.push([coord.lat, coord.lng]);
+        }
+      }
+      if (!abort && pts.length && mapObj.current) { try { mapObj.current.fitBounds(pts, { padding: [30, 30], maxZoom: 12 }); } catch (e) {} }
+    })();
+    return () => { abort = true; };
+  }, [key]);
+
+  return (
+    <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '15px 18px', borderBottom: '1.5px solid var(--line)' }}>
+        <Icon name="pin" size={18} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Wo ist welches Gerät?</h2>
+      </div>
+      <div ref={mapRef} style={{ height: 240, width: '100%', background: 'var(--paper-3)' }} />
+      <div>
+        {rows.map((r) => {
+          const k = r.a ? store.kundeById(r.a.kundeId) : null;
+          return (
+            <div key={r.g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: '1px solid var(--paper-3)' }}>
+              <window.GeraetBadge geraet={r.g} size={28} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.g.name}</div>
+                {r.a
+                  ? <div style={{ fontSize: 11.5, color: 'var(--warn)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Im Einsatz · {k ? k.name : ''}{r.a.ort ? ' · ' + r.a.ort : ''}</div>
+                  : <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Auf dem Hof · verfügbar</div>}
+              </div>
+              {r.a && r.a.ort && <a href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(r.a.ort)} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}><Icon name="pin" size={13} /> Route</a>}
+              {r.a && <button onClick={() => nav('auftrag', { id: r.a.id })} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flex: '0 0 auto' }}><Icon name="chevron" size={16} color="var(--muted-2)" /></button>}
+            </div>
+          );
+        })}
+      </div>
+    </window.UI.Card>
+  );
+}
+
 window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
@@ -19,6 +113,21 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
   };
   const [neuOpen, setNeuOpen] = React.useState(false);
   const [belegDetail, setBelegDetail] = React.useState(null);
+
+  // Dashboard-Kacheln: Reihenfolge bearbeitbar („Anordnen"-Modus).
+  const DEFAULT_ORDER = ['standort', 'auslieferungen', 'rueckgaben', 'status', 'aktionen'];
+  const [dashEdit, setDashEdit] = React.useState(false);
+  const [order, setOrder] = React.useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('friesen_dash_order') || 'null');
+      if (Array.isArray(s)) { const known = s.filter((k) => DEFAULT_ORDER.includes(k)); DEFAULT_ORDER.forEach((k) => { if (!known.includes(k)) known.push(k); }); return known; }
+    } catch (e) {}
+    return DEFAULT_ORDER;
+  });
+  const saveOrder = (o) => { setOrder(o); try { localStorage.setItem('friesen_dash_order', JSON.stringify(o)); } catch (e) {} };
+  const moveCard = (id, dir) => { const i = order.indexOf(id); const j = i + dir; if (j < 0 || j >= order.length) return; const o = [...order]; const tmp = o[i]; o[i] = o[j]; o[j] = tmp; saveOrder(o); };
+  const dragId = React.useRef(null);
+  const dropOn = (overId) => { const from = dragId.current; dragId.current = null; if (!from || from === overId) return; const o = [...order]; o.splice(o.indexOf(from), 1); o.splice(o.indexOf(overId), 0, from); saveOrder(o); };
 
   const stats = [
     { k: 'Umsatz Juni', v: F.fmtEUR(m.umsatzMonat), foot: 'Mai ' + F.fmtEUR(m.umsatzVormonat), go: ['buchhaltung'] },
@@ -46,7 +155,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
 
   // Rückgabe-Erinnerung: laufende Vermietungen, die heute oder in den nächsten Tagen zurückkommen
   const rueckgaben = store.db.auftraege
-    .filter((a) => a.status === 'reserviert' && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
+    .filter((a) => ['reserviert', 'einsatz'].includes(a.status) && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
     .sort((a, b) => a.bis.localeCompare(b.bis));
 
   // Auslieferungen diese Woche: reservierte Aufträge, deren Start (Übergabe) in der laufenden Woche liegt.
@@ -101,87 +210,124 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
       </div>
 
       {/* Kalender-Karte entfernt – es gibt den eigenen Kalender-Bereich (+ späteres iCal-Abo). */}
-      <div className="content-pad split-2" style={{ alignContent: 'start', alignItems: 'start' }}>
-          {auslieferungen.length > 0 && (
-            <window.UI.Card style={{ padding: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-                <Icon name="file" size={18} color="var(--yellow-deep)" />
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Auslieferungen · diese Woche</h2>
-              </div>
-              <div className="stack" style={{ gap: 8 }}>
-                {auslieferungen.map((a) => {
-                  const g = store.geraetById(a.geraetId);
-                  const heute = a.von === store.today;
-                  const st = window.mvStatus ? window.mvStatus(a) : null;
-                  return (
-                    <button key={a.id} onClick={() => nav('auftrag', { id: a.id, openMv: 1 })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--yellow-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-                      {g && <window.GeraetBadge geraet={g} size={26} />}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.kundeById(a.kundeId)?.name || 'Kunde'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}{a.ort ? ' · ' + a.ort : ''}</div>
-                      </div>
-                      <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--yellow-deep)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute' : F.fmtDate(a.von)}</div>
-                        {st && <div style={{ fontSize: 10.5, color: 'var(--muted-2)', marginTop: 2 }}>{st.label}</div>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </window.UI.Card>
-          )}
-          {rueckgaben.length > 0 && (
-            <window.UI.Card style={{ padding: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-                <Icon name="clock" size={18} color="var(--warn)" />
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rückgaben · heute & bald</h2>
-              </div>
-              <div className="stack" style={{ gap: 8 }}>
-                {rueckgaben.map((a) => {
-                  const g = store.geraetById(a.geraetId);
-                  const heute = a.bis === store.today;
-                  return (
-                    <button key={a.id} onClick={() => nav('auftrag', { id: a.id })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--warn-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-                      {g && <window.GeraetBadge geraet={g} size={26} />}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{store.kundeById(a.kundeId)?.name || ''}</div>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--warn)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute zurück' : F.fmtDate(a.bis)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </window.UI.Card>
-          )}
-          <window.UI.Card style={{ padding: 18 }}>
-            <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>Rechnungsstatus</h2>            <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--line)' }}>
-              {segs.map((s) => sums[s.key] > 0 && <div key={s.key} style={{ width: (sums[s.key] / total * 100) + '%', background: window.STATUS_COLOR[s.cls].fg }} />)}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px', marginTop: 16 }}>
-              {segs.map((s) => (
-                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 2, background: window.STATUS_COLOR[s.cls].fg, flex: '0 0 auto' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.label}</div><div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{F.fmtEUR(sums[s.key])}</div></div>
-                </div>
-              ))}
-            </div>
-          </window.UI.Card>
-
-          <window.UI.Card style={{ padding: 18, flex: 1 }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Offene Aktionen</h2>
-            <div className="stack" style={{ gap: 9 }}>
-              {actions.length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 0' }}>Keine offenen Aktionen.</div>}
-              {actions.map((a, i) => (
-                <button key={i} onClick={() => nav(...a.go)} style={{ display: 'flex', gap: 11, alignItems: 'center', padding: '11px 12px', background: 'var(--paper-2)', borderRadius: 'var(--r)', borderLeft: '3px solid ' + a.c, border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: a.c, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-                  <Icon name={a.ic} size={18} color={a.c} />
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{a.t}</div><div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{a.s}</div></div>
-                  <Icon name="chevron" size={16} color="var(--muted-2)" />
-                </button>
-              ))}
-            </div>
-          </window.UI.Card>
+      <div className="content-pad" style={{ paddingBottom: 0, display: 'flex', justifyContent: 'flex-end' }}>
+        <window.UI.Btn variant="ghost" size="sm" icon={dashEdit ? 'check' : 'settings'} onClick={() => setDashEdit((v) => !v)}>{dashEdit ? 'Fertig' : 'Kacheln anordnen'}</window.UI.Btn>
       </div>
+      {(() => {
+        const WIDGETS = {
+          standort: { title: 'Wo ist welches Gerät?', icon: 'pin', span: true, empty: false,
+            node: <GeraeteStandort store={store} nav={nav} /> },
+          auslieferungen: { title: 'Auslieferungen · diese Woche', icon: 'file', empty: auslieferungen.length === 0,
+            node: (
+              <window.UI.Card style={{ padding: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+                  <Icon name="file" size={18} color="var(--yellow-deep)" />
+                  <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Auslieferungen · diese Woche</h2>
+                </div>
+                <div className="stack" style={{ gap: 8 }}>
+                  {auslieferungen.map((a) => {
+                    const g = store.geraetById(a.geraetId);
+                    const heute = a.von === store.today;
+                    const st = window.mvStatus ? window.mvStatus(a) : null;
+                    return (
+                      <button key={a.id} onClick={() => nav('auftrag', { id: a.id, openMv: 1 })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--yellow-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                        {g && <window.GeraetBadge geraet={g} size={26} />}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.kundeById(a.kundeId)?.name || 'Kunde'}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}{a.ort ? ' · ' + a.ort : ''}</div>
+                        </div>
+                        <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--yellow-deep)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute' : F.fmtDate(a.von)}</div>
+                          {st && <div style={{ fontSize: 10.5, color: 'var(--muted-2)', marginTop: 2 }}>{st.label}</div>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </window.UI.Card>
+            ) },
+          rueckgaben: { title: 'Rückgaben · heute & bald', icon: 'clock', empty: rueckgaben.length === 0,
+            node: (
+              <window.UI.Card style={{ padding: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+                  <Icon name="clock" size={18} color="var(--warn)" />
+                  <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rückgaben · heute & bald</h2>
+                </div>
+                <div className="stack" style={{ gap: 8 }}>
+                  {rueckgaben.map((a) => {
+                    const g = store.geraetById(a.geraetId);
+                    const heute = a.bis === store.today;
+                    return (
+                      <button key={a.id} onClick={() => nav('auftrag', { id: a.id })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--warn-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                        {g && <window.GeraetBadge geraet={g} size={26} />}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{store.kundeById(a.kundeId)?.name || ''}</div>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--warn)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute zurück' : F.fmtDate(a.bis)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </window.UI.Card>
+            ) },
+          status: { title: 'Rechnungsstatus', icon: 'rechnung', empty: false,
+            node: (
+              <window.UI.Card style={{ padding: 18 }}>
+                <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>Rechnungsstatus</h2>
+                <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--line)' }}>
+                  {segs.map((s) => sums[s.key] > 0 && <div key={s.key} style={{ width: (sums[s.key] / total * 100) + '%', background: window.STATUS_COLOR[s.cls].fg }} />)}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px', marginTop: 16 }}>
+                  {segs.map((s) => (
+                    <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: window.STATUS_COLOR[s.cls].fg, flex: '0 0 auto' }} />
+                      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.label}</div><div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{F.fmtEUR(sums[s.key])}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </window.UI.Card>
+            ) },
+          aktionen: { title: 'Offene Aktionen', icon: 'alert', empty: false,
+            node: (
+              <window.UI.Card style={{ padding: 18 }}>
+                <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Offene Aktionen</h2>
+                <div className="stack" style={{ gap: 9 }}>
+                  {actions.length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 0' }}>Keine offenen Aktionen.</div>}
+                  {actions.map((a, i) => (
+                    <button key={i} onClick={() => nav(...a.go)} style={{ display: 'flex', gap: 11, alignItems: 'center', padding: '11px 12px', background: 'var(--paper-2)', borderRadius: 'var(--r)', borderLeft: '3px solid ' + a.c, border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: a.c, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                      <Icon name={a.ic} size={18} color={a.c} />
+                      <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{a.t}</div><div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{a.s}</div></div>
+                      <Icon name="chevron" size={16} color="var(--muted-2)" />
+                    </button>
+                  ))}
+                </div>
+              </window.UI.Card>
+            ) },
+        };
+        return (
+          <div className="content-pad split-2" style={{ alignContent: 'start', alignItems: 'start' }}>
+            {order.map((id) => {
+              const w = WIDGETS[id];
+              if (!w) return null;
+              if (dashEdit) {
+                return (
+                  <div key={id} draggable onDragStart={() => { dragId.current = id; }} onDragOver={(e) => e.preventDefault()} onDrop={() => dropOn(id)}
+                    style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'var(--paper)', border: '1.5px dashed var(--line-2)', borderRadius: 'var(--r)', cursor: 'grab' }}>
+                    <Icon name="grid" size={16} color="var(--muted-2)" />
+                    <Icon name={w.icon} size={16} color="var(--muted)" />
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 13.5 }}>{w.title}{w.empty ? ' · leer' : ''}</span>
+                    <window.UI.IconBtn name="chevronD" title="nach oben" onClick={() => moveCard(id, -1)} style={{ width: 32, height: 32, transform: 'rotate(180deg)' }} />
+                    <window.UI.IconBtn name="chevronD" title="nach unten" onClick={() => moveCard(id, 1)} style={{ width: 32, height: 32 }} />
+                  </div>
+                );
+              }
+              if (w.empty) return null;
+              return <div key={id} style={w.span ? { gridColumn: '1 / -1' } : undefined}>{w.node}</div>;
+            })}
+          </div>
+        );
+      })()}
 
       {/* Belegungs-Detail-Modal (Dashboard → Auftrag/Belegung) */}
       <window.UI.Modal open={!!belegDetail} onClose={() => setBelegDetail(null)} title={belegDetail && belegDetail.kind === 'belegung' ? 'Belegung' : 'Auftrag'} width={420}

@@ -72,8 +72,8 @@ window.Screens = window.Screens || {};
     const toast = window.UI.useToast();
     const UI = window.UI;
 
-    // Nur Hauptgeräte (Maschinen + Transport) — Anbaugeräte (kat 'Anbau') ausgeschlossen
-    const machines = useMemo(() => store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport'), [store.db.flotte]);
+    // Nur eigenständig vermietbare Geräte (inkl. ggf. freigeschalteter Anbaugeräte)
+    const machines = useMemo(() => store.db.flotte.filter((g) => window.istVermietbar(g)), [store.db.flotte]);
 
     // Arbeitstag-Fenster aus den Einstellungen (Default 7–19 Uhr)
     const s = store.db.settings || {};
@@ -473,7 +473,7 @@ window.Screens = window.Screens || {};
                               return (
                                 <div key={di} onClick={() => setDaySheet(day)} style={{ borderLeft: di > 0 ? '1px solid var(--paper-3)' : 'none', background: isWeekend(day) ? 'var(--paper-2)' : 'transparent', cursor: 'pointer', position: 'relative' }}>
                                   <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 5 }}>
-                                    <div className="mono" style={{ width: 28, height: 28, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isToday ? 'var(--ink)' : 'transparent', fontWeight: isToday ? 700 : 600, fontSize: 15, color: isToday ? '#fff' : day < store.today ? 'var(--muted-2)' : 'var(--ink)' }}>{parseInt(day.slice(8), 10)}</div>
+                                    <div className="mono" style={{ width: 28, height: 28, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isToday ? 'var(--yellow)' : 'transparent', boxShadow: isToday ? '0 0 0 1.5px var(--yellow-deep)' : 'none', fontWeight: isToday ? 700 : 600, fontSize: 15, color: isToday ? 'var(--ink)' : day < store.today ? 'var(--muted-2)' : 'var(--ink)' }}>{parseInt(day.slice(8), 10)}</div>
                                   </div>
                                   {overflow > 0 ? <div style={{ position: 'absolute', bottom: 1, left: 0, right: 0, textAlign: 'center', fontSize: 9, color: 'var(--muted-2)', fontWeight: 600 }}>+{overflow}</div> : null}
                                 </div>

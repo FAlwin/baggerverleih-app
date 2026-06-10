@@ -83,8 +83,8 @@ UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer 
   const isMob = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(20,20,20,.45)', display: 'flex', justifyContent: 'center', alignItems: isMob ? 'flex-end' : 'center', padding: isMob ? 0 : 24 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--paper)', borderRadius: isMob ? '16px 16px 0 0' : 'var(--r-lg)', width: isMob ? '100%' : width, maxWidth: '100%', maxHeight: isMob ? '92vh' : '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(20,20,20,.45)', display: 'flex', justifyContent: 'center', alignItems: isMob ? 'flex-end' : 'center', padding: isMob ? 0 : 24, animation: 'fadeIn .2s ease' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--paper)', borderRadius: isMob ? '16px 16px 0 0' : 'var(--r-lg)', width: isMob ? '100%' : width, maxWidth: '100%', maxHeight: isMob ? '92vh' : '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden', animation: isMob ? 'drawerUp .3s cubic-bezier(.32,.72,0,1)' : 'fadeIn .18s ease' }}>
         {isMob && <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--line-2)', margin: '12px auto 0', flexShrink: 0 }} />}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1.5px solid var(--line)', flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, whiteSpace: 'nowrap' }}>{title}</h2>
@@ -125,7 +125,7 @@ UI.ToastProvider = function ToastProvider({ children }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}>
+      <div className="fr-toasts" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}>
         {toasts.map((t) => {
           const accent = t.kind === 'err' ? 'var(--danger)' : 'var(--yellow)';
           const hasBtn = t.undo || t.action;
@@ -222,30 +222,33 @@ UI.SignaturPad = function SignaturPad({ title, onSave, onClose }) {
   );
 };
 
-// ---- Stepper / Statuszeile (Auftrags-Lebenszyklus) ----
-UI.Stepper = function Stepper({ flow, current }) {
+// ---- Stepper / Statuszeile: 3 Oberthemen (Planung · Einsatz · Abschluss) + aktueller Zwischenschritt ----
+UI.Stepper = function Stepper({ current }) {
   const F = window.FRIESEN;
-  const idx = flow.indexOf(current);
-  const activeLabel = (F.STATUS[current] || { label: current }).label;
+  const phasen = F.AUFTRAG_PHASEN || [];
+  const curIdx = phasen.findIndex((p) => (p.steps || []).includes(current));
+  const statusLabel = (F.STATUS[current] || { label: current }).label;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', padding: '4px 2px', gap: 0 }}>
-        {flow.map((key, i) => {
-          const done = i < idx, active = i === idx;
-          const reached = i <= idx;
+        {phasen.map((p, i) => {
+          const done = i < curIdx, active = i === curIdx, reached = i <= curIdx;
           const dotBg = active ? 'var(--yellow)' : reached ? 'var(--ink)' : 'var(--paper-3)';
           const dotCol = active ? 'var(--ink)' : reached ? '#fff' : 'var(--muted-2)';
           return (
-            <div key={key} style={{ display: 'flex', alignItems: 'center', flex: i < flow.length - 1 ? 1 : '0 0 auto' }}>
-              <div style={{ width: 22, height: 22, borderRadius: 11, background: dotBg, color: dotCol, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 700, boxShadow: active ? '0 0 0 3px var(--yellow-wash)' : 'none', flex: '0 0 22px' }}>
-                {done ? <Icon name="check" size={12} color="#fff" /> : i + 1}
+            <div key={p.key} style={{ display: 'flex', alignItems: 'center', flex: i < phasen.length - 1 ? 1 : '0 0 auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
+                <div style={{ width: 24, height: 24, borderRadius: 12, background: dotBg, color: dotCol, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, boxShadow: active ? '0 0 0 3px var(--yellow-wash)' : 'none', flex: '0 0 24px' }}>
+                  {done ? <Icon name="check" size={13} color="#fff" /> : i + 1}
+                </div>
+                <span style={{ fontSize: 12.5, fontWeight: active ? 700 : 600, color: reached ? 'var(--ink)' : 'var(--muted-2)', whiteSpace: 'nowrap' }}>{p.label}</span>
               </div>
-              {i < flow.length - 1 && <div style={{ flex: 1, height: 2, background: i < idx ? 'var(--ink)' : 'var(--paper-3)', minWidth: 8 }} />}
+              {i < phasen.length - 1 && <div style={{ flex: 1, height: 2, background: i < curIdx ? 'var(--ink)' : 'var(--paper-3)', minWidth: 10, margin: '0 8px' }} />}
             </div>
           );
         })}
       </div>
-      <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginTop: 6 }}>{activeLabel}</div>
+      <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Aktueller Schritt: <b style={{ color: 'var(--ink)' }}>{statusLabel}</b></div>
     </div>
   );
 };

@@ -228,7 +228,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
   return (
     <>
       <PageHeader kicker="Eingehende Anfragen" title="Anfragen" mobile={mobile}>
-        <window.UI.Btn icon="plus" onClick={() => setNeuOpen(true)}>{mobile ? 'Neu' : 'Neue Anfrage'}</window.UI.Btn>
+        <window.NeuButton nav={nav} onNeu={() => setNeuOpen(true)} />
       </PageHeader>
 
       <div className="content-pad stack" style={{ gap: 14 }}>
@@ -311,7 +311,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <window.UI.Field label={'Gerät' + (neuForm.geraete.length > 1 ? ' ' + (i + 1) : '')} style={{ flex: 1 }}>
                       <window.UI.Select value={g.geraetId} onChange={(e) => { const gid = e.target.value; const eh = geraetEinheiten(store, gid); setRow({ geraetId: gid, einheit: eh[0], dauer: 1 }); }}>
-                        {store.db.flotte.filter((x) => x.kat === 'Maschine' || x.kat === 'Transport').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        {store.db.flotte.filter((x) => window.istVermietbar(x)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </window.UI.Select>
                     </window.UI.Field>
                     {neuForm.geraete.length > 1 && <window.UI.Btn size="sm" variant="ghost" icon="trash" title="Gerät entfernen" onClick={() => { setNeuForm((f) => ({ ...f, geraete: f.geraete.filter((_, j) => j !== i) })); setActiveRow(0); }} style={{ marginBottom: 0 }} />}
