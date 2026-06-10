@@ -81,14 +81,47 @@ UI.Select = function Select({ children, style, ...props }) {
 
 UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer }) {
   const isMob = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
+  const [phase, setPhase] = React.useState('enter');   // 'enter' | 'open' | 'closing'
+  const [dragY, setDragY] = React.useState(0);          // Ziehversatz nach unten (px), für Render
+  const draggingRef = React.useRef(false);
+  const dragRef = React.useRef(0);
+  const startY = React.useRef(0);
+  React.useEffect(() => {
+    if (!open) return;
+    setPhase('enter'); setDragY(0); draggingRef.current = false; dragRef.current = 0;
+    const t = setTimeout(() => setPhase('open'), 20);   // im nächsten Frame einfahren
+    return () => clearTimeout(t);
+  }, [open]);
   if (!open) return null;
+
+  const close = () => { if (isMob) { setPhase('closing'); setTimeout(onClose, 300); } else onClose(); };
+  // Ziehen am Griff (nur mobil): runter = wegschieben/durchschauen; weit genug → schließen.
+  // Refs statt State, damit synchrone Pointer-Events nicht an veralteten Closures scheitern.
+  const onDown = (e) => { startY.current = e.clientY; draggingRef.current = true; dragRef.current = 0; setDragY(0); try { e.target.setPointerCapture(e.pointerId); } catch (_) {} };
+  const onMove = (e) => { if (!draggingRef.current) return; const d = Math.max(0, e.clientY - startY.current); dragRef.current = d; setDragY(d); };
+  const onUp = (e) => { if (!draggingRef.current) return; draggingRef.current = false; try { e.target.releasePointerCapture(e.pointerId); } catch (_) {} if (dragRef.current > 110) close(); else { dragRef.current = 0; setDragY(0); } };
+
+  const ty = !isMob ? 0 : (phase === 'enter' || phase === 'closing') ? '100%' : dragY + 'px';
+  const sheetStyle = {
+    background: 'var(--paper)', borderRadius: isMob ? '16px 16px 0 0' : 'var(--r-lg)', width: isMob ? '100%' : width, maxWidth: '100%',
+    maxHeight: isMob ? '92vh' : '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+    transform: isMob ? `translateY(${ty})` : 'none',
+    transition: isMob ? (draggingRef.current ? 'none' : 'transform .3s cubic-bezier(.32,.72,0,1)') : 'none',
+    animation: isMob ? 'none' : 'fadeIn .18s ease',
+  };
+  const overlayOpacity = isMob ? (phase === 'closing' ? 0 : 1) : 1;
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(20,20,20,.45)', display: 'flex', justifyContent: 'center', alignItems: isMob ? 'flex-end' : 'center', padding: isMob ? 0 : 24, animation: 'fadeIn .2s ease' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--paper)', borderRadius: isMob ? '16px 16px 0 0' : 'var(--r-lg)', width: isMob ? '100%' : width, maxWidth: '100%', maxHeight: isMob ? '92vh' : '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden', animation: isMob ? 'drawerUp .3s cubic-bezier(.32,.72,0,1)' : 'fadeIn .18s ease' }}>
-        {isMob && <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--line-2)', margin: '12px auto 0', flexShrink: 0 }} />}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1.5px solid var(--line)', flexShrink: 0 }}>
+    <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(20,20,20,.45)', display: 'flex', justifyContent: 'center', alignItems: isMob ? 'flex-end' : 'center', padding: isMob ? 0 : 24, animation: 'fadeIn .2s ease', opacity: overlayOpacity, transition: 'opacity .28s ease' }}>
+      <div onClick={(e) => e.stopPropagation()} style={sheetStyle}>
+        {isMob && (
+          <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+            style={{ flexShrink: 0, padding: '10px 0 6px', display: 'flex', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--line-2)' }} />
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMob ? '4px 20px 14px' : '14px 20px', borderBottom: '1.5px solid var(--line)', flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, whiteSpace: 'nowrap' }}>{title}</h2>
-          <UI.IconBtn name="x" onClick={onClose} title="Schließen" style={{ width: 34, height: 34 }} />
+          <UI.IconBtn name="x" onClick={close} title="Schließen" style={{ width: 34, height: 34 }} />
         </div>
         <div style={{ padding: 20, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>{children}</div>
         {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1.5px solid var(--line)', background: 'var(--paper-2)', flexShrink: 0, flexWrap: 'wrap' }}>{footer}</div>}

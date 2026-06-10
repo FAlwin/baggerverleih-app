@@ -235,11 +235,12 @@ async function geocodeOrt(ort) {
 // Geräte-Grundbetrag (ohne Zusatzleistungen) + Kontext
 function geraetBetrag(g, row) {
   const hour = isHourMode(g), tage = tageInkl(row.von, row.bis);
-  const multiTag = !!row.von && !!row.bis && row.bis > row.von; // mehrere ganze Tage gewählt
+  const tageModus = !hour || row.modus === 'tage';            // Tagespreis-Modus (Tagesgerät oder „Mehrere Tage")
   if (!g) return { betrag: 0, tage, hour, ok: false };
-  // Mehrtagesbuchung (auch bei Stunden-/Staffelgeräten): ganze Tage zum Tagespreis
-  if (multiTag) return { betrag: tage * tagSatz(g), tage, satz: tagSatz(g), hour, multiTag: true, ok: true };
-  if (!hour) { if (!row.von) return { betrag: 0, tage, hour: false, ok: false }; return { betrag: tage * tagSatz(g), tage, satz: tagSatz(g), hour: false, ok: true }; }
+  if (tageModus) {
+    if (!row.von) return { betrag: 0, tage, hour, tageModus: true, ok: false };
+    return { betrag: tage * tagSatz(g), tage, satz: tagSatz(g), hour, tageModus: true, multiTag: !!row.bis && row.bis > row.von, ok: true };
+  }
   if (!row.sel) return { betrag: 0, tage, hour: true, ok: false };
   const h = row.sel.end - row.sel.start;
   if (geraetModell(g) === 'staffel') { const t = bestTier(g, h); return { betrag: t ? t.preis : 0, h, tier: t, hour: true, staffel: true, ok: !!t }; }
@@ -257,9 +258,10 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
   const g = store.geraetById(row.geraetId) || {};
   const hour = isHourMode(g);
   const tage = tageInkl(row.von, row.bis);
-  const multiTag = !!row.von && !!row.bis && row.bis > row.von; // mehrere ganze Tage
-  const dayMode = !hour || multiTag;                            // Tages-Drawer statt Stundenachse
+  const dayMode = !hour || row.modus === 'tage';                // Tages-Drawer statt Stundenachse
+  const multiTag = !!row.von && !!row.bis && row.bis > row.von; // mehrere ganze Tage gewählt
   const gb = geraetBetrag(g, row);
+  const [info, setInfo] = anfS('');                             // Hinweis (z. B. „ab … belegt")
   const vermietbar = store.db.flotte.filter((x) => window.istVermietbar(x));
   const sub = blockBetrag(store, row);
 
@@ -267,15 +269,22 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
     const ng = store.geraetById(gid);
     const eh = geraetEinheiten(store, gid);
     const keep = row.von && dayStatus(store, gid, row.von) === 'frei';
-    onChange({ geraetId: gid, einheit: eh[0] || 'Tag', dauer: 1, sel: null, zusatz: {}, von: keep ? row.von : '', bis: keep ? row.von : '' });
+    onChange({ geraetId: gid, einheit: eh[0] || 'Tag', dauer: 1, sel: null, modus: 'stunde', zusatz: {}, von: keep ? row.von : '', bis: keep ? row.von : '' });
+    setInfo('');
   };
-  // Einheitliche Tageswahl: 1× tippen = Einzeltag (bei Stundengeräten danach Stundenwahl),
-  // 2. (späterer) Tag = Mehrtagesbereich. Gilt für Tages- UND Stunden-/Staffelgeräte.
+  const setModus = (m) => { onChange({ modus: m, sel: m === 'tage' ? null : row.sel, bis: m === 'stunde' ? (row.von || '') : row.bis }); setInfo(''); };
   const pick = (di) => {
-    if (!row.von || di < row.von || (row.bis && row.bis !== row.von)) { onChange({ von: di, bis: di, sel: null }); return; }
-    if (di === row.von) return; // bereits gewählt – Stundenwahl bleibt erhalten
-    if (rangeFrei(store, row.geraetId, row.von, di)) onChange({ bis: di, sel: null });
-    else onChange({ von: di, bis: di, sel: null });
+    setInfo('');
+    if (!dayMode) { onChange({ von: di, bis: di, sel: null }); return; }   // Stunden-Modus: nur Einzeltag
+    if (!row.von || di < row.von || (row.bis && row.bis !== row.von)) { onChange({ von: di, bis: di }); return; }
+    if (di === row.von) return;
+    if (rangeFrei(store, row.geraetId, row.von, di)) { onChange({ bis: di }); return; }
+    // Bereich blockiert → bis zum letzten freien Tag vor der Sperre begrenzen + erklären
+    let last = row.von, c = window.addDays(row.von, 1), blocked = null, guard = 0;
+    while (c <= di && guard < 400) { const st = dayStatus(store, row.geraetId, c); if (st === 'belegt' || st === 'reserviert' || st === 'past') { blocked = c; break; } last = c; c = window.addDays(c, 1); guard++; }
+    const grund = blocked && dayStatus(store, row.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
+    if (last > row.von) { onChange({ bis: last }); setInfo('Nur bis ' + F.fmtDate(last) + ' frei – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
+    else { onChange({ bis: row.von }); setInfo('Verlängerung nicht möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
   };
   const setTage = (n) => {
     let c = row.von, cnt = 1, guard = 0;
@@ -406,10 +415,23 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
         })}
       </div>
 
+      {/* Buchungsart bei Stunden-/Staffelgeräten */}
+      {hour && (
+        <div style={{ marginTop: 14 }}>
+          <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 6 }}>Buchungsart</div>
+          <div style={{ display: 'inline-flex', border: '1px solid var(--line-2)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+            {[['stunde', 'Stundenweise'], ['tage', 'Mehrere Tage']].map(([m, l]) => {
+              const on = dayMode === (m === 'tage');
+              return <button key={m} type="button" onClick={() => setModus(m)} style={{ padding: '7px 15px', fontSize: 13, fontFamily: 'inherit', border: 'none', cursor: 'pointer', background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{l}</button>;
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Verfügbarkeit */}
       <div className="kicker" style={{ color: 'var(--muted)', margin: '16px 0 8px' }}>Verfügbarkeit</div>
       <VerfuegbarkeitsKalender store={store} geraetId={row.geraetId} selected={row.von} bis={row.bis || row.von} onPick={pick} />
-      {hour && <div className="hint" style={{ marginTop: 6 }}>Einen Tag wählen = stundenweise · zwei Tage (Bereich) wählen = mehrtägig zum Tagespreis ({F.fmtEUR(tagSatz(g))}/Tag).</div>}
+      {info && <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: '#8a6d00', background: 'var(--yellow-soft)', border: '1px solid #e2c75e', borderRadius: 'var(--r)', padding: '8px 11px' }}><Icon name="alert" size={14} color="#8a6d00" /> {info}</div>}
 
       {/* Detail-Drawer: Tage (mehrtägig oder Tagesgerät) vs. Stundenachse */}
       {dayMode ? (
@@ -500,7 +522,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 }
 
 // ---- Neues Anfrage-Modal (Phase 2) ----
-const LEER_ROW = () => ({ geraetId: 'bagger', von: '', bis: '', vonZeit: '07:00', bisZeit: '17:00', dauer: 1, einheit: 'Tag', gran: 1, sel: null, zusatz: {} });
+const LEER_ROW = () => ({ geraetId: 'bagger', von: '', bis: '', vonZeit: '07:00', bisZeit: '17:00', dauer: 1, einheit: 'Tag', gran: 1, sel: null, modus: 'stunde', zusatz: {} });
 function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
   const [form, setForm] = anfS({ name: '', phone: '', email: '', ort: '', nachricht: '' });
   const [rows, setRows] = anfS([LEER_ROW()]);
@@ -509,7 +531,7 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
   const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
   const total = rows.reduce((a, r) => a + blockBetrag(store, r), 0);
 
-  const rowOk = (r) => { const g = store.geraetById(r.geraetId); if (!g) return false; if (isHourMode(g)) return !!r.von && (!!r.sel || (!!r.bis && r.bis > r.von)); return !!r.von && !!r.bis; };
+  const rowOk = (r) => { const g = store.geraetById(r.geraetId); if (!g) return false; if (isHourMode(g)) return r.modus === 'tage' ? !!r.von : (!!r.von && !!r.sel); return !!r.von && !!r.bis; };
   const valid = form.name.trim() && form.phone.trim() && form.email.trim() && form.ort.trim() && form.nachricht.trim() && rows.length && rows.every(rowOk);
 
   const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([LEER_ROW()]); setActiveIdx(0); };
@@ -521,8 +543,7 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
     const geraete = [];
     for (const r of rows) {
       const g = store.geraetById(r.geraetId), hour = isHourMode(g), tage = tageInkl(r.von, r.bis);
-      const multiTag = !!r.von && !!r.bis && r.bis > r.von;
-      const entry = (hour && !multiTag && r.sel)
+      const entry = (hour && r.modus !== 'tage' && r.sel)
         ? { geraetId: r.geraetId, von: r.von, bis: r.von, vonZeit: decToH(r.sel.start), bisZeit: decToH(r.sel.end), einheit: geraetModell(g) === 'staffel' ? ((bestTier(g, r.sel.end - r.sel.start) || {}).label || 'Stunden') : 'Stunden', dauer: r.sel.end - r.sel.start }
         : { geraetId: r.geraetId, von: r.von, bis: r.bis || r.von, vonZeit: '07:00', bisZeit: '17:00', einheit: 'Tag', dauer: tage };
       const konflikt = store.findConflict(entry.geraetId, entry.von, entry.bis, null, entry.vonZeit, entry.bisZeit);
