@@ -65,7 +65,7 @@ function VerfuegbarkeitsKalender({ store, geraetId, selected, bis, onPick }) {
           const di = iso(y, m, d);
           const st = status(di);
           const c = KAL_FARBE[st];
-          const klick = st === 'frei' || st === 'reserviert';
+          const klick = st === 'frei';
           const sel = di === selected;
           const inRange = selected && (di >= selected && di <= (bis || selected));
           return (
@@ -216,7 +216,7 @@ function tageInkl(von, bis) {
 function rangeFrei(store, gid, a, b) {
   if (b < a) { const t = a; a = b; b = t; }
   let c = a, guard = 0;
-  while (c <= b && guard < 400) { const st = dayStatus(store, gid, c); if (st === 'belegt' || st === 'past') return false; c = window.addDays(c, 1); guard++; }
+  while (c <= b && guard < 400) { const st = dayStatus(store, gid, c); if (st === 'belegt' || st === 'reserviert' || st === 'past') return false; c = window.addDays(c, 1); guard++; }
   return true;
 }
 // Einsatzort gegen Nominatim prüfen (nutzt + füllt den Geocode-Cache). true = gefunden / nicht prüfbar.
@@ -270,7 +270,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
   };
   const setTage = (n) => {
     let c = row.von, cnt = 1, guard = 0;
-    while (cnt < n && guard < 400) { let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; } if (['belegt', 'past'].indexOf(dayStatus(store, row.geraetId, nx)) >= 0) break; c = nx; cnt++; guard++; }
+    while (cnt < n && guard < 400) { let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; } if (['belegt', 'reserviert', 'past'].indexOf(dayStatus(store, row.geraetId, nx)) >= 0) break; c = nx; cnt++; guard++; }
     onChange({ bis: c });
   };
 
