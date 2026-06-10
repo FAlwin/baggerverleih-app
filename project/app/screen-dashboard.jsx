@@ -40,6 +40,17 @@ function GeraeteStandort({ store, nav }) {
       if (!mapObj.current) return;
       markers.current.forEach((m) => { try { m.remove(); } catch (e) {} });
       markers.current = [];
+      // Farbige Stecknadel je Gerät (Gerätefarbe)
+      const mkPin = (color, label) => window.L.divIcon({
+        className: '',
+        html: '<div style="position:relative;width:28px;height:36px;">'
+          + '<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">'
+          + '<path d="M14 0C6.27 0 0 6.27 0 14c0 9.5 14 22 14 22s14-12.5 14-22C28 6.27 21.73 0 14 0z" fill="' + color + '" stroke="#fff" stroke-width="2"/>'
+          + '<circle cx="14" cy="14" r="6" fill="#fff"/></svg>'
+          + (label ? '<span style="position:absolute;top:7px;left:0;width:28px;text-align:center;font:700 8px var(--mono,monospace);color:#141414;">' + label + '</span>' : '')
+          + '</div>',
+        iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -32],
+      });
       const cache = cacheGet();
       const pts = [];
       for (const r of einsatz) {
@@ -56,7 +67,7 @@ function GeraeteStandort({ store, nav }) {
         if (abort || !mapObj.current) return;
         if (coord) {
           const k = store.kundeById(r.a.kundeId);
-          const m = window.L.marker([coord.lat, coord.lng]).addTo(mapObj.current)
+          const m = window.L.marker([coord.lat, coord.lng], { icon: mkPin(r.g.farbe || '#F7C72A', r.g.kuerzel) }).addTo(mapObj.current)
             .bindPopup('<b>' + r.g.name + '</b><br>' + (k ? k.name : '') + '<br>' + ort);
           markers.current.push(m);
           pts.push([coord.lat, coord.lng]);
