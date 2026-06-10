@@ -68,9 +68,10 @@ function VerfuegbarkeitsKalender({ store, geraetId, selected, bis, onPick }) {
           const klick = st === 'frei';
           const sel = di === selected;
           const inRange = selected && (di >= selected && di <= (bis || selected));
+          // onPick wird immer aufgerufen (außer Vergangenheit) – die Logik im Block zeigt bei belegt/reserviert/geschlossen einen Hinweis
           return (
-            <div key={di} title={`${di} · ${st}`} onClick={() => klick && onPick && onPick(di)}
-              style={{ textAlign: 'center', fontSize: 12, lineHeight: '30px', height: 30, borderRadius: 4, background: inRange && !sel ? 'var(--yellow-wash)' : c[0], color: c[1], cursor: klick ? 'pointer' : 'default', fontWeight: (sel || inRange) ? 800 : 500, outline: sel ? '2px solid var(--ink)' : inRange ? '2px solid var(--yellow-deep)' : 'none' }}>{d}</div>
+            <div key={di} title={`${di} · ${st}`} onClick={() => st !== 'past' && onPick && onPick(di, st)}
+              style={{ textAlign: 'center', fontSize: 12, lineHeight: '30px', height: 30, borderRadius: 4, background: inRange && !sel ? 'var(--yellow-wash)' : c[0], color: c[1], cursor: klick ? 'pointer' : (st === 'past' ? 'default' : 'not-allowed'), fontWeight: (sel || inRange) ? 800 : 500, outline: sel ? '2px solid var(--ink)' : inRange ? '2px solid var(--yellow-deep)' : 'none' }}>{d}</div>
           );
         })}
       </div>
@@ -273,8 +274,15 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
     setInfo('');
   };
   const setModus = (m) => { onChange({ modus: m, sel: m === 'tage' ? null : row.sel, bis: m === 'stunde' ? (row.von || '') : row.bis }); setInfo(''); };
-  const pick = (di) => {
+  const pick = (di, st) => {
     setInfo('');
+    // Nicht-freie Tage: kurze Erklärung statt stiller Nichtreaktion
+    if (st && st !== 'frei') {
+      if (st === 'belegt') setInfo(F.fmtDate(di) + ' ist bereits belegt – bitte einen freien (grünen) Tag wählen.');
+      else if (st === 'reserviert') setInfo(F.fmtDate(di) + ' ist reserviert (offene Anfrage/Angebot) – bitte einen freien Tag wählen.');
+      else if (st === 'geschlossen') setInfo(F.fmtDate(di) + ' ist ein Sperrtag (Wochenende) – als Start nicht wählbar.');
+      return;
+    }
     if (!dayMode) { onChange({ von: di, bis: di, sel: null }); return; }   // Stunden-Modus: nur Einzeltag
     if (!row.von || di < row.von || (row.bis && row.bis !== row.von)) { onChange({ von: di, bis: di }); return; }
     if (di === row.von) return;
