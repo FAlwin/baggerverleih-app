@@ -277,6 +277,60 @@ function StoreProvider({ children }) {
       return newId;
     },
     updateAuftrag: (id, patch) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => a.id === id ? ensureGeraete({ ...a, ...patch }) : a) })),
+
+    // ---- Auftrag verlängern (atomar: Zeitraum + primäres Gerät + Mietvertrag + Rechnung je Status) ----
+    // Erwartet vorab berechnete Werte aus dem UI: neuBis, neuDauer (Miettage des 1. Geräts),
+    // zusatzPos/zusatzBetrag (nur die zusätzlichen Tage). Gibt Info zurück (z. B. neue Zusatzrechnung).
+    verlaengern: (auftragId, { neuBis, neuDauer, zusatzPos, zusatzBetrag }) => {
+      const sumPos = (pos) => (pos || []).reduce((s, p) => s + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
+      const info = {};
+      setDb((d) => {
+        const a0 = d.auftraege.find((x) => x.id === auftragId);
+        if (!a0) return d;
+        const liste = (a0.geraete && a0.geraete.length) ? a0.geraete : [{ geraetId: a0.geraetId, von: a0.von, bis: a0.bis, vonZeit: a0.vonZeit, bisZeit: a0.bisZeit, einheit: a0.einheit, dauer: a0.dauer }];
+        const geraete = liste.map((g, i) => i === 0 ? { ...g, bis: neuBis, dauer: neuDauer } : g);
+        const g0 = geraete[0] || {};
+        const dev = (d.flotte || []).find((x) => x.id === g0.geraetId);
+        const devName = dev ? dev.name : (g0.geraetId || '');
+        const tagPreis = ((dev && dev.tarif) || []).find((t) => /tag/i.test(t.einheit));
+        const tp = tagPreis ? Number(tagPreis.preis) : null;
+        // Tag-Position des 1. Geräts auf die neue Menge setzen (Extras bleiben unangetastet).
+        // Treffer = Name passt ODER (Einheit „Tag" und Tagespreis passt); nur die erste solche Position.
+        const bump = (pos) => { let done = false; return (pos || []).map((p) => { const treffer = !done && /tag/i.test(p.einheit || '') && (p.text === devName || (tp != null && Number(p.preis) === tp)); if (treffer) { done = true; return { ...p, menge: neuDauer }; } return p; }); };
+
+        let auftraege = d.auftraege.map((x) => {
+          if (x.id !== auftragId) return x;
+          let next = { ...x, bis: neuBis, geraete, geraetId: g0.geraetId, von: g0.von, vonZeit: g0.vonZeit, bisZeit: g0.bisZeit };
+          if (x.mietvertrag) {
+            const mv = x.mietvertrag;
+            if (mv.gesperrt) {
+              const nachtraege = [...(mv.nachtraege || []), { datum: today, bis: neuBis, positionen: zusatzPos, betrag: zusatzBetrag }];
+              next = { ...next, mietvertrag: { ...mv, nachtraege } };
+            } else {
+              const positionen = bump(mv.positionen);
+              next = { ...next, mietvertrag: { ...mv, bis: neuBis, positionen, betrag: sumPos(positionen) } };
+            }
+          }
+          return next;
+        });
+
+        let rechnungen = d.rechnungen;
+        if (a0.rechnungId) {
+          const r = d.rechnungen.find((rr) => rr.id === a0.rechnungId);
+          if (r && r.status === 'bezahlt') {
+            const kr = kreis(d, 'rechnung'); const rid = nextId(kr.prefix, d.rechnungen, kr.start);
+            rechnungen = [{ id: rid, kundeId: r.kundeId, datum: today, faellig: addDays(today, (d.settings && d.settings.zahlungszielTage) || 14), status: 'offen', positionen: zusatzPos, betrag: zusatzBetrag, auftragId, ausVerlaengerung: r.id }, ...d.rechnungen];
+            info.zusatzRechnung = rid;
+          } else if (r) {
+            const positionen = bump(r.positionen);
+            rechnungen = d.rechnungen.map((rr) => rr.id === r.id ? { ...rr, positionen, betrag: sumPos(positionen) } : rr);
+            info.rechnungAngepasst = r.id;
+          }
+        }
+        return { ...d, auftraege, rechnungen };
+      });
+      return info;
+    },
     // ---- Mehrgeräte je Auftrag ----
     // Geräte-Buchung hinzufügen (Konfliktprüfung erfolgt im UI vor dem Aufruf). Mirror wird neu gespiegelt.
     auftragGeraetAdd: (auftragId, entry) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) =>
@@ -565,9 +619,12 @@ function istMiettag(iso) {
 function berechneEnde(von, vonZeit, menge, einheit) {
   const n = Math.max(0, Number(menge) || 0);
   if (!von) return { bis: von, bisZeit: vonZeit || '17:00' };
-  if (einheit === 'Stunden') {
+  // Stunden: fester Block ("4 Stunden"/"8 Stunden") ODER generisch 'Stunden' (= menge Stunden).
+  const stdMatch = /^(\d+)\s*Stunden$/i.exec(String(einheit || ''));
+  if (einheit === 'Stunden' || stdMatch) {
+    const blockH = stdMatch ? Number(stdMatch[1]) : n;
     const [h, m] = (vonZeit || '08:00').split(':').map(Number);
-    const total = h * 60 + m + n * 60;
+    const total = h * 60 + m + blockH * 60;
     const extraDays = Math.floor(total / (24 * 60));
     const rest = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
     const p = (x) => String(x).padStart(2, '0');

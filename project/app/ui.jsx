@@ -251,25 +251,31 @@ UI.Stepper = function Stepper({ flow, current }) {
 };
 
 // ---- Zeitraum-Picker: Start + Dauer (Std./Tage) → Ende wird berechnet ----
-UI.ZeitraumPicker = function ZeitraumPicker({ von, vonZeit, menge, einheit, withTime, onChange, F }) {
+UI.ZeitraumPicker = function ZeitraumPicker({ von, vonZeit, menge, einheit, einheiten, withTime, onChange, F }) {
   const fmtDate = (F && F.fmtDate) || ((x) => x);
-  const ende = window.berechneEnde(von, vonZeit, menge, einheit);
+  // Auswählbare Einheiten: gerätespezifisch übergeben (z. B. ['4 Stunden','8 Stunden','Tag']),
+  // sonst generischer Fallback. Stunden-Blöcke = feste Dauer (Menge 1), keine kleinere Auswahl.
+  const opts = (einheiten && einheiten.length) ? einheiten : ['Tage', 'Stunden'];
+  const istStd = /stunden/i.test(einheit || '');          // irgendeine Stunden-Einheit → Uhrzeit zeigen
+  const istBlock = /^\d+\s*Stunden$/i.test(einheit || ''); // fester Block (z. B. „4 Stunden") → Menge fix 1
+  const zeigeZeit = withTime != null ? withTime : istStd;
+  const effMenge = istBlock ? 1 : menge;
+  const ende = window.berechneEnde(von, vonZeit, effMenge, einheit);
   const set = (patch) => onChange({ von, vonZeit, menge, einheit, ...patch });
-  const endText = !von ? '—' : (einheit === 'Stunden'
+  const endText = !von ? '—' : (istStd
     ? `${fmtDate(ende.bis)} um ${ende.bisZeit} Uhr`
     : fmtDate(ende.bis));
   return (
     <div className="stack" style={{ gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: withTime ? '1fr 96px' : '1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: zeigeZeit ? '1fr 96px' : '1fr', gap: 8 }}>
         <UI.Field label="Start (Datum)"><UI.Input type="date" value={von || ''} onChange={(e) => set({ von: e.target.value })} /></UI.Field>
-        {withTime && <UI.Field label="ab Uhr"><UI.Input type="time" value={vonZeit || '08:00'} onChange={(e) => set({ vonZeit: e.target.value })} /></UI.Field>}
+        {zeigeZeit && <UI.Field label="ab Uhr"><UI.Input type="time" value={vonZeit || '08:00'} onChange={(e) => set({ vonZeit: e.target.value })} /></UI.Field>}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'end' }}>
-        <UI.Field label="Dauer"><UI.Input type="number" min="1" value={menge} onChange={(e) => set({ menge: e.target.value })} /></UI.Field>
+      <div style={{ display: 'grid', gridTemplateColumns: istBlock ? '1fr' : '1fr 1fr', gap: 8, alignItems: 'end' }}>
+        {!istBlock && <UI.Field label="Dauer"><UI.Input type="number" min="1" value={menge} onChange={(e) => set({ menge: e.target.value })} /></UI.Field>}
         <UI.Field label="Einheit">
-          <UI.Select value={einheit} onChange={(e) => set({ einheit: e.target.value })}>
-            <option value="Tage">Tage</option>
-            <option value="Stunden">Stunden</option>
+          <UI.Select value={einheit} onChange={(e) => { const ne = e.target.value; set({ einheit: ne, menge: /^\d+\s*Stunden$/i.test(ne) ? 1 : (Number(menge) || 1) }); }}>
+            {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </UI.Select>
         </UI.Field>
       </div>

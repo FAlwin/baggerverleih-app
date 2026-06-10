@@ -49,17 +49,24 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
     .filter((a) => a.status === 'reserviert' && a.bis >= store.today && a.bis <= window.addDays(store.today, 3))
     .sort((a, b) => a.bis.localeCompare(b.bis));
 
-  // Alles läuft über den Auftrag → nur zwei Aktionen: Auftrag erstellen oder Gerät blocken.
+  // Auslieferungen diese Woche: reservierte Aufträge, deren Start (Übergabe) in der laufenden Woche liegt.
+  const wochenEnde = (() => { const d = new Date(store.today + 'T00:00:00'); const toSun = (7 - d.getDay()) % 7; return window.addDays(store.today, toSun); })();
+  const auslieferungen = store.db.auftraege
+    .filter((a) => a.status === 'reserviert' && a.von >= store.today && a.von <= wochenEnde)
+    .sort((a, b) => a.von.localeCompare(b.von));
+
+  // „Neu" startet direkt eine Anfrage (häufigster Fall). Direktbuchung für Privat/Reparatur als zweite Option.
   const NEU_ITEMS = [
-    { icon: 'file',   label: 'Auftrag erstellen', sub: 'Angebot, Buchung oder Direktrechnung', go: ['auftraege', { neu: 1 }] },
-    { icon: 'flotte', label: 'Gerät blocken',     sub: 'Maschine für Privat / Wartung sperren', go: ['kalender', { neu: 'belegung' }] },
+    { icon: 'bell',   label: 'Neue Anfrage',                    sub: 'Kundenanfrage erfassen – Start eines Auftrags',   go: ['anfragen', { neu: 1 }] },
+    { icon: 'flotte', label: 'Direkt buchen (Privat/Reparatur)', sub: 'Maschine ohne Kunde sperren – Wartung, Eigennutzung', go: ['kalender', { neu: 'belegung' }] },
   ];
 
   return (
     <>
       <PageHeader kicker="Übersicht · Di 02.06.2026" title="Dashboard" mobile={mobile} onMenu={onMenu}>
-        <div style={{ position: 'relative' }}>
-          <window.UI.Btn icon="plus" iconRight="chevronD" onClick={() => setNeuOpen((v) => !v)}>Neu</window.UI.Btn>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <window.UI.Btn icon="plus" onClick={() => nav('anfragen', { neu: 1 })}>Neu</window.UI.Btn>
+          <window.UI.IconBtn name="chevronD" title="Weitere Optionen" onClick={() => setNeuOpen((v) => !v)} />
           {neuOpen && (
             <>
               <div onClick={() => setNeuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
@@ -93,61 +100,36 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
         ))}
       </div>
 
-      <div className="content-pad dash-cols" style={{ flex: 1 }}>
-        {/* Wocheneinsatzplan */}
-        <window.UI.Card style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px', borderBottom: '1.5px solid var(--line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="kalender" size={18} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Wocheneinsatzplan</h2></div>
-            <button onClick={() => nav('kalender')} style={{ display: 'flex', alignItems: 'center', gap: 5, font: 'inherit', fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>KW 23 <Icon name="arrowRight" size={14} /></button>
-          </div>
-
-          {/* Timeline: alle Tage, alle Buchungen */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {days.map((day, di) => {
-              const dayTermine = [
-                ...store.db.auftraege.map((a) => ({ ...a, kind: 'auftrag' })),
-                ...(store.db.belegungen || []).map((b) => ({ ...b, kind: 'belegung' })),
-              ].filter((t) => day >= t.von && day <= t.bis);
-              const [dy,dm,dd] = day.split('-').map(Number);
-              const wd = WD[(new Date(dy, dm-1, dd).getDay() + 6) % 7];
-              const isToday = day === store.today;
-              const isWE = di >= 5;
-              return (
-                <div key={day} style={{ display: 'flex', borderBottom: di < 6 ? '1px solid var(--paper-3)' : 'none', background: isToday ? 'var(--yellow-wash)' : isWE ? 'rgba(0,0,0,.012)' : 'transparent', minHeight: 48 }}>
-                  {/* Datum-Spalte */}
-                  <div style={{ width: 52, flex: '0 0 52px', padding: '10px 8px', textAlign: 'center', borderRight: '1.5px solid var(--line)' }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: isToday ? 'var(--yellow-deep)' : 'var(--muted)' }}>{wd}</div>
-                    <div className="num" style={{ fontSize: 16, fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--yellow-deep)' : 'var(--ink)', lineHeight: 1.1 }}>{parseInt(day.slice(8))}</div>
-                  </div>
-                  {/* Buchungen */}
-                  <div style={{ flex: 1, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', gap: 6, alignContent: 'center' }}>
-                    {dayTermine.length === 0
-                      ? <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>frei</span>
-                      : dayTermine.map((t) => {
-                          const g = store.geraetById(t.geraetId);
-                          const isBel = t.kind === 'belegung';
-                          const isRes = !isBel && (t.status === 'anfrage' || t.status === 'angebot');
-                          const name = isBel ? (F.BELEGUNG_GRUND[t.grund]?.label || 'Belegung') : (store.kundeById(t.kundeId)?.name || 'Vermietung');
-                          const bg = isBel ? 'var(--paper-3)' : isRes ? 'var(--yellow-wash)' : (g?.farbe || 'var(--ink)');
-                          const col = isBel ? 'var(--muted)' : isRes ? 'var(--warn)' : (['#F7C72A','#B5D334','#F39222'].includes(g?.farbe) ? '#141414' : '#fff');
-                          return (
-                            <button key={t.id} onClick={() => setBelegDetail(t)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 6px', background: bg, border: isRes ? '1px dashed var(--warn)' : isBel ? '1px solid var(--line-2)' : 'none', borderRadius: 3, cursor: 'pointer', font: 'inherit', color: col }}>
-                              {g && <window.GeraetBadge geraet={g} size={18} />}
-                              <span style={{ fontSize: 12, fontWeight: 700 }}>{name.split(' ').slice(-1)[0]}</span>
-                              {t.vonZeit && <span style={{ fontSize: 11, opacity: 0.8 }}>{t.vonZeit}–{t.bisZeit}</span>}
-                            </button>
-                          );
-                        })
-                    }
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </window.UI.Card>
-
-        {/* Right column */}
-        <div className="stack" style={{ gap: 18, minHeight: 0 }}>
+      {/* Kalender-Karte entfernt – es gibt den eigenen Kalender-Bereich (+ späteres iCal-Abo). */}
+      <div className="content-pad split-2" style={{ alignContent: 'start', alignItems: 'start' }}>
+          {auslieferungen.length > 0 && (
+            <window.UI.Card style={{ padding: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+                <Icon name="file" size={18} color="var(--yellow-deep)" />
+                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Auslieferungen · diese Woche</h2>
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
+                {auslieferungen.map((a) => {
+                  const g = store.geraetById(a.geraetId);
+                  const heute = a.von === store.today;
+                  const st = window.mvStatus ? window.mvStatus(a) : null;
+                  return (
+                    <button key={a.id} onClick={() => nav('auftrag', { id: a.id, openMv: 1 })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: heute ? 'var(--yellow-wash)' : 'var(--paper-2)', borderRadius: 'var(--r)', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                      {g && <window.GeraetBadge geraet={g} size={26} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.kundeById(a.kundeId)?.name || 'Kunde'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g?.name || 'Gerät'}{a.ort ? ' · ' + a.ort : ''}</div>
+                      </div>
+                      <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: heute ? 'var(--yellow-deep)' : 'var(--muted)', whiteSpace: 'nowrap' }}>{heute ? 'heute' : F.fmtDate(a.von)}</div>
+                        {st && <div style={{ fontSize: 10.5, color: 'var(--muted-2)', marginTop: 2 }}>{st.label}</div>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </window.UI.Card>
+          )}
           {rueckgaben.length > 0 && (
             <window.UI.Card style={{ padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
@@ -199,7 +181,6 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
               ))}
             </div>
           </window.UI.Card>
-        </div>
       </div>
 
       {/* Belegungs-Detail-Modal (Dashboard → Auftrag/Belegung) */}

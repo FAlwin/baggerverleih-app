@@ -209,6 +209,7 @@ function Layout() {
     // Rechnungen/Angebote sind unter „Belege" zusammengefasst → automatisch dorthin leiten
     if (screen === 'rechnungen') { screen = 'belege'; params = { ...params, tab: 'rechnungen' }; }
     else if (screen === 'angebote') { screen = 'belege'; params = { ...params, tab: 'angebote' }; }
+    else if (screen === 'mietvertraege') { screen = 'belege'; params = { ...params, tab: 'mietvertraege' }; }
     setRoute((prev) => {
       if (TOP_SCREENS.has(screen)) {
         setHistory([]); // Hauptseite → History leeren, kein Zurück-Button

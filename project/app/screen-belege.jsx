@@ -5,11 +5,11 @@ const { useState: blS } = React;
 // Belege fasst die beiden Übersichten zusammen. Der jeweils aktive Tab rendert
 // den bestehenden Listen-Screen – ohne dessen eigenen Kopf (PageHeader = leer).
 window.Screens.belege = function Belege({ nav, params = {}, mobile, onMenu, PageHeader }) {
-  const [tab, setTab] = blS(params.tab === 'rechnungen' ? 'rechnungen' : 'angebote');
+  const [tab, setTab] = blS(['rechnungen', 'mietvertraege'].includes(params.tab) ? params.tab : 'angebote');
   const NoHeader = () => null;
   const Sub = window.Screens[tab];
 
-  const TABS = [['angebote', 'Angebote', 'angebot'], ['rechnungen', 'Rechnungen', 'rechnung']];
+  const TABS = [['angebote', 'Angebote', 'angebot'], ['rechnungen', 'Rechnungen', 'rechnung'], ['mietvertraege', 'Mietverträge', 'file']];
 
   return (
     <>

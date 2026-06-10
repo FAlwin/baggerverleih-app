@@ -181,15 +181,18 @@ Gewerbebeginn: 01.04.2026
 
 ---
 
-## Gerätepark (aktuelle Flotte)
+## Gerätepark & Preise (verbindliche Preisliste, Stand Juni 2026)
 
-| Gerät | Detail | Tarif (Auszug) |
+| Gerät | Detail | Tarif |
 |---|---|---|
-| 1,9t Minibagger | Hitachi ZX18-3 CLR, Bj. 2014 | 130€/Tag, 560€/Woche |
-| Plateauanhänger | 2.700 kg GVW, 2×4 m | 45€/Tag, 180€/Woche |
-| Betonrüttler | 230 V | 30€/Tag |
-| Tieflöffel 40/60 cm | Anbaugerät | inklusive |
-| Grabenräumlöffel 1,00 m | Anbaugerät | inklusive |
+| 1,9t Minibagger | Hitachi ZX18-3 CLR, Bj. 2014, ohne Fahrer, inkl. 1 Löffel | **60 €/Tag** (kein Wochenpreis) |
+| 1,9t Bagger mit Fahrer | inkl. 1 Löffel, zzgl. Tagesmiete | 25 €/Std |
+| Plateauanhänger | 2.700 kg GVW, 2×4 m, Auffahrrampen | **4 Std 35 € · 8 Std 50 € · Tag 60 €** |
+| Betonrüttler | 230 V | 20 €/Tag |
+| Tieflöffel 40/60 cm, Grabenräumlöffel 1,00 m | Anbaugerät | 1. Löffel inklusive, ab 2. Löffel 5 €/Tag |
+| Transport | Anlieferung & Abholung | bis 15 km 50 € · bis 30 km 100 € · über 30 km 30-km-Basis + 1 €/km |
+
+**Einheiten sind gerätespezifisch fest** (keine freie/kleinere Auswahl): Bagger & Rüttler nur **Tag(e)**, Anhänger **4 Stunden / 8 Stunden / Tag(e)**. Stunden = fester Block (Menge 1), Tage = Anzahl × Tagespreis. Gilt im Kontaktformular, im internen Anfrage-Formular und in Angebot/Rechnung (`positionenAusGeraete`, `ZeitraumPicker` mit `einheiten`-Prop, `berechneEnde` mit „N Stunden"-Block). Die FLOTTE-Tarife in `data.js` sind die Quelle der wählbaren Einheiten.
 
 ---
 
@@ -263,9 +266,20 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
   Warnung; Überspringen → Warnung. **bezahlt** und **Mahnung** schließen sich aus.
 
 **Belege zusammengefasst (`screen-belege.jsx`)**
-- Ein Nav-Punkt „Belege" mit Tabs Angebote/Rechnungen; rendert die bestehenden Listen-Screens mit
-  `PageHeader = () => null`. `nav('rechnungen'|'angebote')` wird in `app.jsx` automatisch auf
+- Ein Nav-Punkt „Belege" mit Tabs Angebote/Rechnungen/**Mietverträge**; rendert die Listen-Screens mit
+  `PageHeader = () => null`. `nav('rechnungen'|'angebote'|'mietvertraege')` wird in `app.jsx` automatisch auf
   `belege` mit `params.tab` umgeleitet. Erstellung läuft nur noch über den Auftrag.
+- `window.Screens.mietvertraege` listet alle relevanten Aufträge mit MV-Status (`window.mvStatus`: Kein Vertrag/
+  Entwurf/Unterschrieben/Versendet); Klick → `nav('auftrag', {id, openMv:1})` öffnet im Auftrag direkt den `MietvertragModal`.
+
+**Auslieferungen & Verlängerung**
+- **Dashboard-Karte „Auslieferungen · diese Woche"**: reservierte Aufträge mit Start in der laufenden Woche →
+  Klick öffnet den Mietvertrag (`openMv`) für Unterschrift & Versand vor Ort.
+- **Auftrag verlängern** (`VerlaengernModal`, Button auf der Auftragskarte bei reserviert/abgerechnet/bezahlt):
+  hart **gedeckelt** auf den nächsten festen Folgetermin desselben Geräts („Gerät muss bis … zurück", kein
+  Verschieben). `store.verlaengern` aktualisiert Zeitraum + `geraete[0].dauer` atomar, zieht **Mietvertrag**
+  (offen → anpassen / gesperrt → `mietvertrag.nachtraege[]`) und **Rechnung** (offen → Positionsmenge anpassen /
+  bezahlt → Zusatzrechnung) nach. Nur tageweise Aufträge verlängerbar.
 
 **PDF via nativem Druck-Dialog (`print.jsx`)**
 - `window.PDF.download(reactDoc, filename)` rendert das Dokument offscreen in `#__printroot` und ruft

@@ -31,6 +31,13 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
   const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
   const toggleTag = (i) => setAllg((p) => { const m = [...p.mietWochentage]; m[i] = !m[i]; return { ...p, mietWochentage: m }; });
   const [nummern, setNummern] = esS(JSON.parse(JSON.stringify(s0.nummern || {})));
+  const txtDefaults = (F.SETTINGS && F.SETTINGS.versandTexte) || {};
+  const txt0 = s0.versandTexte || {};
+  const [texte, setTexte] = esS({
+    angebot: txt0.angebot ?? txtDefaults.angebot ?? '',
+    rechnung: txt0.rechnung ?? txtDefaults.rechnung ?? '',
+    mietvertrag: txt0.mietvertrag ?? txtDefaults.mietvertrag ?? '',
+  });
   const [sigPadOpen, setSigPadOpen] = esS(false);
   const sigFileRef = React.useRef();
 
@@ -52,6 +59,10 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
     toast('Einstellungen gespeichert');
   };
   const speicherNummern = () => { store.updateSettings({ nummern }); toast('Nummernkreise gespeichert'); };
+  const speicherTexte = () => { store.updateSettings({ versandTexte: texte }); toast('Versandtexte gespeichert'); };
+  const setzeTextZurueck = (kind) => setTexte((p) => ({ ...p, [kind]: txtDefaults[kind] || '' }));
+  const PLATZHALTER = '{kunde} · {nummer} · {datum} · {betrag} · {faellig} · {gueltig} · {leistungen} · {firma} · {inhaber} · {telefon}';
+  const TEXT_FELDER = [['angebot', 'Angebot'], ['rechnung', 'Rechnung'], ['mietvertrag', 'Mietvertrag']];
 
   // Vorschau der nächsten Nummer je Kreis
   const listFor = { rechnung: store.db.rechnungen, angebot: store.db.angebote, auftrag: store.db.auftraege, belegung: store.db.belegungen || [] };
@@ -178,6 +189,28 @@ window.Screens.einstellungen = function Einstellungen({ nav, mobile, onMenu, Pag
             })}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
               <window.UI.Btn icon="check" onClick={speicherNummern}>Nummernkreise speichern</window.UI.Btn>
+            </div>
+          </div>
+        </window.UI.Card>
+
+        {/* Versandtexte */}
+        <window.UI.Card style={{ padding: 18 }}>
+          <Abschnitt titel="Versandtexte" sub="Vorlagen für E-Mail, WhatsApp und SMS beim Versenden von Belegen." />
+          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '12px 0 4px' }}>
+            Platzhalter werden beim Versand automatisch ersetzt:
+            <div className="num" style={{ marginTop: 5, color: 'var(--ink)', fontSize: 11.5, lineHeight: 1.7 }}>{PLATZHALTER}</div>
+          </div>
+          <div className="stack" style={{ gap: 14, marginTop: 8 }}>
+            {TEXT_FELDER.map(([kind, label]) => (
+              <window.UI.Field key={kind} label={label}>
+                <window.UI.Textarea value={texte[kind]} onChange={(e) => setTexte((p) => ({ ...p, [kind]: e.target.value }))} rows={9} style={{ fontSize: 13, lineHeight: 1.5 }} />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                  <window.UI.Btn size="sm" variant="ghost" icon="undo" onClick={() => setzeTextZurueck(kind)}>Auf Standard zurücksetzen</window.UI.Btn>
+                </div>
+              </window.UI.Field>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <window.UI.Btn icon="check" onClick={speicherTexte}>Versandtexte speichern</window.UI.Btn>
             </div>
           </div>
         </window.UI.Card>

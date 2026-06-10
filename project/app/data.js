@@ -60,43 +60,61 @@
     { id: 'k5', name: 'Landwirtschaft Hövel', kontakt: 'Josef Hövel', street: 'Dorfstraße 2', city: '53804 Much', phone: '02245 60112', email: 'hof.hoevel@t-online.de', typ: 'Gewerbe' },
     { id: 'k6', name: 'Herr Schmitz', kontakt: 'Peter Schmitz', street: 'Hauptstraße 9', city: '53783 Eitorf', phone: '0160 5544332', email: 'p.schmitz@gmx.de', typ: 'Privat' },
     { id: 'k7', name: 'Hausverwaltung Sülz', kontakt: 'C. Berger', street: 'Luxemburger Straße 210', city: '50937 Köln', phone: '0221 9988770', email: 'verwaltung@hv-suelz.de', typ: 'Gewerbe' },
+    { id: 'k8', name: 'GaLaBau Thelen', kontakt: 'Markus Thelen', street: 'Hauptstraße 44', city: '53804 Much', phone: '02245 91200', email: 'info@galabau-thelen.de', typ: 'Gewerbe' },
+    { id: 'k9', name: 'Familie Becker', kontakt: 'Andrea Becker', street: 'Am Hang 7', city: '51503 Rösrath', phone: '0173 4455667', email: 'a.becker@web.de', typ: 'Privat' },
+    { id: 'k10', name: 'Hoch- und Tiefbau Klein GmbH', kontakt: 'D. Klein', street: 'Industriestraße 3', city: '53773 Hennef', phone: '02242 870900', email: 'bau@klein-hennef.de', typ: 'Gewerbe' },
+    { id: 'k11', name: 'Herr Özdemir', kontakt: 'M. Özdemir', street: 'Ringstraße 18', city: '53721 Siegburg', phone: '0151 22334455', email: 'm.oezdemir@gmx.de', typ: 'Privat' },
   ];
 
-  // Positions-Vorlagen
+  // Positions-Vorlagen — echte Preise laut Preisliste (Stand Juni 2026).
   const P = {
-    baggerW:   () => ({ text: '1,9t Minibagger Hitachi ZX18-3', einheit: 'Woche',      menge: 1, preis: 560 }),
-    baggerWE:  () => ({ text: '1,9t Minibagger Hitachi ZX18-3', einheit: 'Wochenende', menge: 1, preis: 230 }),
-    baggerTag: (n) => ({ text: '1,9t Minibagger Hitachi ZX18-3', einheit: 'Tag',       menge: n, preis: 130 }),
-    anhTag:    (n) => ({ text: 'Plateauanhänger 2.700 kg',       einheit: 'Tag',       menge: n, preis: 45 }),
-    anhW:      () => ({ text: 'Plateauanhänger 2.700 kg',        einheit: 'Woche',      menge: 1, preis: 180 }),
-    ruetTag:   (n) => ({ text: 'Betonrüttler (230 V)',           einheit: 'Tag',       menge: n, preis: 30 }),
-    transport: () => ({ text: 'Transportpauschale (Umkreis 15 km)', einheit: 'Pauschale', menge: 1, preis: 45 }),
-    reinigung: () => ({ text: 'Reinigungspauschale',            einheit: 'Pauschale',  menge: 1, preis: 25 }),
+    bagger:    (n) => ({ text: '1,9t Minibagger Hitachi ZX18-3', einheit: 'Tag',       menge: n, preis: 60 }),
+    anh4h:     ()  => ({ text: 'Plateauanhänger 2.700 kg',       einheit: '4 Stunden', menge: 1, preis: 35 }),
+    anh8h:     ()  => ({ text: 'Plateauanhänger 2.700 kg',       einheit: '8 Stunden', menge: 1, preis: 50 }),
+    anhTag:    (n) => ({ text: 'Plateauanhänger 2.700 kg',       einheit: 'Tag',       menge: n, preis: 60 }),
+    ruet:      (n) => ({ text: 'Betonrüttler (230 V)',           einheit: 'Tag',       menge: n, preis: 20 }),
+    fahrer:    (h) => ({ text: '1,9t Bagger mit Fahrer',         einheit: 'Stunde',    menge: h, preis: 25 }),
+    loeffel:   (n) => ({ text: 'Zusatz-Löffel (ab 2.)',          einheit: 'Tag',       menge: n, preis: 5 }),
+    t15:       ()  => ({ text: 'Transport bis 15 km (Anlieferung & Abholung)', einheit: 'Pauschale', menge: 1, preis: 50 }),
+    t30:       ()  => ({ text: 'Transport bis 30 km (Anlieferung & Abholung)', einheit: 'Pauschale', menge: 1, preis: 100 }),
+    reinigung: ()  => ({ text: 'Reinigungspauschale',            einheit: 'Pauschale', menge: 1, preis: 100 }),
   };
   const sum = (pos) => pos.reduce((a, p) => a + p.menge * p.preis, 0);
+  // Geräte-Zeile eines Auftrags (mit Einheit + Dauer, damit Positionen/Preise korrekt abgeleitet werden).
+  const gd = (geraetId, von, bis, einheit, dauer, vonZeit = '07:00', bisZeit = '17:00') => ({ geraetId, von, bis, vonZeit, bisZeit, einheit, dauer });
+  // Auftrag bauen: spiegelt das erste Gerät auf die Primärfelder (Abwärtskompatibilität).
+  const mkAuf = (id, kundeId, ort, status, geraete, links = {}) => {
+    const g0 = geraete[0];
+    return {
+      id, typ: 'vermietung', kundeId, ort, status, geraete,
+      geraetId: g0.geraetId, von: g0.von, bis: g0.bis, vonZeit: g0.vonZeit, bisZeit: g0.bisZeit,
+      anfrageId: links.anfrageId || null, angebotId: links.angebotId || null, rechnungId: links.rechnungId || null, notiz: links.notiz || '',
+    };
+  };
 
   // Rechnungen — Status: offen | bezahlt | ueberfaellig | mahnung
   const mkR = (o, positionen) => ({ ...o, positionen, betrag: sum(positionen) });
   const RECHNUNGEN = [
-    mkR({ id: 'R-2026-001', kundeId: 'k1', datum: '2026-04-08', faellig: '2026-04-22', status: 'bezahlt', bezahltAm: '2026-04-19' }, [P.baggerW()]),
-    mkR({ id: 'R-2026-002', kundeId: 'k2', datum: '2026-04-15', faellig: '2026-04-29', status: 'bezahlt', bezahltAm: '2026-04-27' }, [P.baggerTag(3)]),
-    mkR({ id: 'R-2026-003', kundeId: 'k3', datum: '2026-04-22', faellig: '2026-05-06', status: 'bezahlt', bezahltAm: '2026-05-02' }, [P.baggerTag(1), P.transport()]),
-    mkR({ id: 'R-2026-004', kundeId: 'k4', datum: '2026-05-02', faellig: '2026-05-16', status: 'mahnung', mahnstufe: 1 }, [P.baggerW(), P.baggerTag(2)]),
-    mkR({ id: 'R-2026-005', kundeId: 'k5', datum: '2026-05-09', faellig: '2026-05-23', status: 'bezahlt', bezahltAm: '2026-05-20' }, [P.baggerTag(2), P.transport()]),
-    mkR({ id: 'R-2026-006', kundeId: 'k1', datum: '2026-05-14', faellig: '2026-05-28', status: 'ueberfaellig' }, [P.baggerW(), P.ruetTag(2), P.reinigung(), P.transport()]),
-    mkR({ id: 'R-2026-007', kundeId: 'k6', datum: '2026-05-20', faellig: '2026-06-03', status: 'bezahlt', bezahltAm: '2026-05-29' }, [P.baggerTag(1)]),
-    mkR({ id: 'R-2026-008', kundeId: 'k2', datum: '2026-06-01', faellig: '2026-06-15', status: 'offen' }, [P.baggerW()]),
-    mkR({ id: 'R-2026-009', kundeId: 'k3', datum: '2026-06-02', faellig: '2026-06-16', status: 'offen' }, [P.baggerTag(1), P.transport()]),
-    mkR({ id: 'R-2026-010', kundeId: 'k7', datum: '2026-06-02', faellig: '2026-06-16', status: 'offen' }, [P.baggerTag(1), P.anhTag(1), P.transport()]),
+    mkR({ id: 'R-2026-001', kundeId: 'k1',  datum: '2026-04-08', faellig: '2026-04-22', status: 'bezahlt', bezahltAm: '2026-04-17', auftragId: 'AU-2026-001' }, [P.bagger(3), P.t15()]),
+    mkR({ id: 'R-2026-002', kundeId: 'k2',  datum: '2026-04-14', faellig: '2026-04-28', status: 'bezahlt', bezahltAm: '2026-04-22', auftragId: 'AU-2026-002' }, [P.bagger(1), P.anhTag(1), P.t15()]),
+    mkR({ id: 'R-2026-003', kundeId: 'k8',  datum: '2026-04-24', faellig: '2026-05-08', status: 'bezahlt', bezahltAm: '2026-05-03', auftragId: 'AU-2026-003' }, [P.bagger(3), P.fahrer(6), P.t30()]),
+    mkR({ id: 'R-2026-004', kundeId: 'k3',  datum: '2026-04-28', faellig: '2026-05-12', status: 'bezahlt', bezahltAm: '2026-05-05', auftragId: 'AU-2026-004' }, [P.anh8h()]),
+    mkR({ id: 'R-2026-006', kundeId: 'k10', datum: '2026-05-07', faellig: '2026-05-21', status: 'bezahlt', bezahltAm: '2026-05-18', auftragId: 'AU-2026-006' }, [P.bagger(4), P.t30()]),
+    mkR({ id: 'R-2026-009', kundeId: 'k4',  datum: '2026-05-13', faellig: '2026-05-27', status: 'mahnung', mahnstufe: 1, auftragId: 'AU-2026-009' }, [P.bagger(3), P.reinigung(), P.t15()]),
+    mkR({ id: 'R-2026-005', kundeId: 'k5',  datum: '2026-05-21', faellig: '2026-06-04', status: 'bezahlt', bezahltAm: '2026-05-29', auftragId: 'AU-2026-005' }, [P.bagger(3), P.ruet(2), P.t15()]),
+    mkR({ id: 'R-2026-007', kundeId: 'k6',  datum: '2026-05-25', faellig: '2026-06-08', status: 'bezahlt', bezahltAm: '2026-06-01', auftragId: 'AU-2026-007' }, [P.ruet(1)]),
+    mkR({ id: 'R-2026-008', kundeId: 'k9',  datum: '2026-05-27', faellig: '2026-06-10', status: 'bezahlt', bezahltAm: '2026-06-01', auftragId: 'AU-2026-008' }, [P.bagger(2), P.loeffel(2), P.t15()]),
+    mkR({ id: 'R-2026-010', kundeId: 'k7',  datum: '2026-05-11', faellig: '2026-05-25', status: 'offen', auftragId: 'AU-2026-010' }, [P.anh4h(), P.t15()]),
+    mkR({ id: 'R-2026-011', kundeId: 'k2',  datum: '2026-06-01', faellig: '2026-06-15', status: 'offen', auftragId: 'AU-2026-011' }, [P.bagger(1), P.t15()]),
+    mkR({ id: 'R-2026-012', kundeId: 'k9',  datum: '2026-06-01', faellig: '2026-06-15', status: 'offen', auftragId: 'AU-2026-012' }, [P.ruet(1)]),
   ];
 
   // Angebote — Status: offen | angenommen | abgelaufen
   const mkA = (o, positionen) => ({ ...o, positionen, betrag: sum(positionen) });
   const ANGEBOTE = [
-    mkA({ id: 'A-2026-018', kundeId: 'k4', datum: '2026-05-28', gueltigBis: '2026-06-11', status: 'offen', auftragId: 'AU-2026-010' }, [P.baggerW(), P.anhW(), P.transport()]),
-    mkA({ id: 'A-2026-017', kundeId: 'k7', datum: '2026-05-25', gueltigBis: '2026-06-08', status: 'angenommen' }, [P.baggerTag(1), P.anhTag(1), P.transport()]),
-    mkA({ id: 'A-2026-016', kundeId: 'k5', datum: '2026-05-10', gueltigBis: '2026-05-24', status: 'abgelaufen' }, [P.baggerTag(2), P.transport()]),
-    mkA({ id: 'A-2026-019', kundeId: 'k2', datum: '2026-06-01', gueltigBis: '2026-06-15', status: 'offen' }, [P.baggerW(), P.ruetTag(2), P.transport()]),
+    mkA({ id: 'A-2026-001', kundeId: 'k10', datum: '2026-05-30', gueltigBis: '2026-06-16', status: 'offen', auftragId: 'AU-2026-017' }, [P.bagger(2), P.fahrer(10), P.t30()]),
+    mkA({ id: 'A-2026-002', kundeId: 'k4',  datum: '2026-06-01', gueltigBis: '2026-06-19', status: 'offen', auftragId: 'AU-2026-018' }, [P.bagger(3), P.anhTag(1), P.t15()]),
+    mkA({ id: 'A-2026-003', kundeId: 'k5',  datum: '2026-05-08', gueltigBis: '2026-05-22', status: 'abgelaufen' }, [P.bagger(2), P.t15()]),
   ];
 
   // Aufträge — zentrale Klammer über Belegung (Kalender), Angebot und Rechnung.
@@ -104,38 +122,57 @@
   // status: anfrage → angebot → reserviert → abgerechnet → bezahlt → abgeschlossen
   // Privat-/Wartungs-Blocks stehen separat in BELEGUNGEN (kein Auftrag).
   const AUFTRAEGE = [
-    { id: 'AU-2026-001', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k1', von: '2026-06-01', bis: '2026-06-01', vonZeit: '07:00', bisZeit: '17:00', ort: 'Baustelle Siegburg', status: 'abgeschlossen', anfrageId: null, angebotId: null, rechnungId: 'R-2026-006', notiz: '' },
-    { id: 'AU-2026-002', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '07:00', bisZeit: '13:00', ort: 'Lohmar', status: 'abgerechnet', anfrageId: null, angebotId: null, rechnungId: 'R-2026-009', notiz: '' },
-    { id: 'AU-2026-003', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k3', von: '2026-06-02', bis: '2026-06-02', vonZeit: '14:00', bisZeit: '17:00', ort: 'Lohmar', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-004', typ: 'vermietung', geraetId: 'anhaenger', kundeId: 'k2', von: '2026-06-03', bis: '2026-06-03', vonZeit: '08:00', bisZeit: '12:00', ort: 'Lohmar', status: 'abgerechnet', anfrageId: null, angebotId: null, rechnungId: 'R-2026-008', notiz: '' },
-    { id: 'AU-2026-005', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-04', bis: '2026-06-05', vonZeit: '07:00', bisZeit: '17:00', ort: 'Troisdorf', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-008', typ: 'vermietung', geraetId: 'ruettler',  kundeId: 'k6', von: '2026-06-05', bis: '2026-06-05', vonZeit: '13:00', bisZeit: '17:00', ort: 'Eitorf', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-009', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k7', von: '2026-06-06', bis: '2026-06-06', vonZeit: '07:00', bisZeit: '14:00', ort: 'Köln-Sülz', status: 'reserviert', anfrageId: null, angebotId: null, rechnungId: null, notiz: '' },
-    { id: 'AU-2026-010', typ: 'vermietung', geraetId: 'bagger',    kundeId: 'k4', von: '2026-06-10', bis: '2026-06-11', vonZeit: '07:00', bisZeit: '17:00', ort: 'Neunkirchen-Seelscheid', status: 'angebot', anfrageId: 'anf1', angebotId: 'A-2026-018', rechnungId: null, notiz: '' },
+    mkAuf('AU-2026-001', 'k1',  'Baustelle Siegburg, Hauptstraße', 'abgeschlossen', [gd('bagger', '2026-04-06', '2026-04-08', 'Tag', 3)], { rechnungId: 'R-2026-001' }),
+    mkAuf('AU-2026-002', 'k2',  'Lohmar', 'abgeschlossen', [gd('bagger', '2026-04-14', '2026-04-14', 'Tag', 1), gd('anhaenger', '2026-04-14', '2026-04-14', 'Tag', 1)], { rechnungId: 'R-2026-002' }),
+    mkAuf('AU-2026-003', 'k8',  'Much', 'abgeschlossen', [gd('bagger', '2026-04-22', '2026-04-24', 'Tag', 3)], { rechnungId: 'R-2026-003', notiz: 'Mit Fahrer (6 Std).' }),
+    mkAuf('AU-2026-004', 'k3',  'Lohmar', 'abgeschlossen', [gd('anhaenger', '2026-04-28', '2026-04-28', '8 Stunden', 1, '08:00', '16:00')], { rechnungId: 'R-2026-004' }),
+    mkAuf('AU-2026-006', 'k10', 'Hennef', 'abgeschlossen', [gd('bagger', '2026-05-04', '2026-05-07', 'Tag', 4)], { rechnungId: 'R-2026-006' }),
+    mkAuf('AU-2026-009', 'k4',  'Troisdorf', 'abgerechnet', [gd('bagger', '2026-05-11', '2026-05-13', 'Tag', 3)], { rechnungId: 'R-2026-009', notiz: 'Reinigung erforderlich (Lehmboden).' }),
+    mkAuf('AU-2026-005', 'k5',  'Much', 'abgeschlossen', [gd('bagger', '2026-05-19', '2026-05-21', 'Tag', 3), gd('ruettler', '2026-05-19', '2026-05-20', 'Tag', 2)], { rechnungId: 'R-2026-005' }),
+    mkAuf('AU-2026-007', 'k6',  'Eitorf', 'abgeschlossen', [gd('ruettler', '2026-05-25', '2026-05-25', 'Tag', 1)], { rechnungId: 'R-2026-007' }),
+    mkAuf('AU-2026-008', 'k9',  'Rösrath', 'abgeschlossen', [gd('bagger', '2026-05-26', '2026-05-27', 'Tag', 2)], { rechnungId: 'R-2026-008', notiz: 'Zwei Löffel im Einsatz.' }),
+    mkAuf('AU-2026-010', 'k7',  'Köln-Sülz', 'abgerechnet', [gd('anhaenger', '2026-05-11', '2026-05-11', '4 Stunden', 1, '08:00', '12:00')], { rechnungId: 'R-2026-010' }),
+    mkAuf('AU-2026-011', 'k2',  'Lohmar', 'abgerechnet', [gd('bagger', '2026-06-01', '2026-06-01', 'Tag', 1)], { rechnungId: 'R-2026-011' }),
+    mkAuf('AU-2026-012', 'k9',  'Rösrath', 'abgerechnet', [gd('ruettler', '2026-06-01', '2026-06-01', 'Tag', 1)], { rechnungId: 'R-2026-012' }),
+    mkAuf('AU-2026-013', 'k8',  'Much', 'reserviert', [gd('bagger', '2026-06-04', '2026-06-05', 'Tag', 2)]),
+    mkAuf('AU-2026-014', 'k3',  'Lohmar', 'reserviert', [gd('anhaenger', '2026-06-03', '2026-06-03', '8 Stunden', 1, '08:00', '16:00')]),
+    mkAuf('AU-2026-015', 'k6',  'Eitorf', 'reserviert', [gd('ruettler', '2026-06-05', '2026-06-05', 'Tag', 1, '13:00', '17:00')]),
+    mkAuf('AU-2026-016', 'k11', 'Siegburg', 'reserviert', [gd('bagger', '2026-06-09', '2026-06-10', 'Tag', 2)]),
+    mkAuf('AU-2026-017', 'k10', 'Hennef', 'angebot', [gd('bagger', '2026-06-12', '2026-06-13', 'Tag', 2)], { angebotId: 'A-2026-001', notiz: 'Mit Fahrer (10 Std) angefragt.' }),
+    mkAuf('AU-2026-018', 'k4',  'Neunkirchen-Seelscheid', 'angebot', [gd('bagger', '2026-06-16', '2026-06-18', 'Tag', 3), gd('anhaenger', '2026-06-16', '2026-06-16', 'Tag', 1)], { angebotId: 'A-2026-002', anfrageId: 'anf-archiv' }),
   ];
 
   // Belegungen — Maschine geblockt OHNE Auftrag: Privat/Familie/Freunde oder Wartung.
   // Erscheinen nur im Kalender, nicht in der Auftragsliste. Kein Status, kein Kunde, keine Rechnung.
   // grund: privat | wartung
   const BELEGUNGEN = [
-    { id: 'BL-2026-001', grund: 'privat',  geraetId: 'bagger',   von: '2026-06-03', bis: '2026-06-03', vonZeit: '14:00', bisZeit: '18:00', ort: 'Eigener Garten Lohmar', notiz: 'Eigene Nutzung – nicht vermietbar' },
-    { id: 'BL-2026-002', grund: 'wartung', geraetId: 'ruettler', von: '2026-06-04', bis: '2026-06-04', vonZeit: '08:00', bisZeit: '12:00', ort: 'Werkstatt', notiz: 'Inspektion / Funktionsprüfung' },
+    { id: 'BL-2026-001', grund: 'privat',  geraetId: 'bagger',    von: '2026-06-06', bis: '2026-06-06', vonZeit: '08:00', bisZeit: '14:00', ort: 'Eigener Garten Lohmar', notiz: 'Eigene Nutzung – nicht vermietbar' },
+    { id: 'BL-2026-002', grund: 'wartung', geraetId: 'ruettler',  von: '2026-06-11', bis: '2026-06-11', vonZeit: '08:00', bisZeit: '12:00', ort: 'Werkstatt', notiz: 'Inspektion / Funktionsprüfung' },
+    { id: 'BL-2026-003', grund: 'privat',  geraetId: 'anhaenger', von: '2026-06-13', bis: '2026-06-13', vonZeit: '09:00', bisZeit: '17:00', ort: 'Umzug Familie', notiz: 'Privat verliehen' },
   ];
 
-  // Eingehende Kundenanfragen (Kontaktformular)
+  // Eingehende Kundenanfragen (Kontaktformular) – mit gerätespezifischer Einheit + Dauer.
+  const mkAnf = (o, g) => ({ ...o, geraete: [g], geraetId: g.geraetId, von: g.von, bis: g.bis, vonZeit: g.vonZeit, bisZeit: g.bisZeit, einheit: g.einheit, dauer: g.dauer, status: 'neu' });
   const ANFRAGEN = [
-    { id: 'anf1', datum: '2026-06-01', name: 'Thomas Müller', phone: '0162 3344556', email: 'mueller@web.de', geraetId: 'bagger', von: '2026-06-10', bis: '2026-06-11', ort: 'Neunkirchen-Seelscheid', nachricht: 'Baggerarbeiten für neue Gartenanlage, ca. 1,5 Tage Aushub.', status: 'neu' },
-    { id: 'anf2', datum: '2026-06-01', name: 'Florian Weber', phone: '0177 9988770', email: 'f.weber@gmail.com', geraetId: 'anhaenger', von: '2026-06-08', bis: '2026-06-08', ort: 'Overath', nachricht: 'Bauschutt und Gartenabfälle abtransportieren.', status: 'neu' },
+    mkAnf({ id: 'anf1', datum: '2026-06-01', name: 'Thomas Müller', phone: '0162 3344556', email: 'mueller@web.de', ort: 'Neunkirchen-Seelscheid', nachricht: 'Aushub für neue Gartenanlage, ca. 4 Tage.' },
+      gd('bagger', '2026-06-22', '2026-06-25', 'Tag', 4)),
+    mkAnf({ id: 'anf2', datum: '2026-06-01', name: 'Florian Weber', phone: '0177 9988770', email: 'f.weber@gmail.com', ort: 'Overath', nachricht: 'Bauschutt und Gartenabfälle abtransportieren.' },
+      gd('anhaenger', '2026-06-18', '2026-06-18', '4 Stunden', 1, '08:00', '12:00')),
+    mkAnf({ id: 'anf3', datum: '2026-05-31', name: 'Familie Sommer', phone: '0151 78787878', email: 'sommer@t-online.de', ort: 'Rösrath', nachricht: 'Teich ausheben, ca. 2 Tage.' },
+      gd('bagger', '2026-06-29', '2026-06-30', 'Tag', 2)),
   ];
   const BUCHUNGEN = [
-    { id: 'b1', datum: '2026-04-19', art: 'e', kategorie: 'Vermietung', text: 'R-2026-001 Krämer', betrag: 560 },
-    { id: 'b2', datum: '2026-04-27', art: 'e', kategorie: 'Vermietung', text: 'R-2026-002 Becker', betrag: 390 },
-    { id: 'b3', datum: '2026-04-10', art: 'a', kategorie: 'Versicherung', text: 'Maschinenversicherung Q2', betrag: 145 },
-    { id: 'b4', datum: '2026-05-02', art: 'e', kategorie: 'Vermietung', text: 'R-2026-003 Wagner', betrag: 175 },
-    { id: 'b5', datum: '2026-05-12', art: 'a', kategorie: 'Diesel/Betrieb', text: 'Diesel + AdBlue', betrag: 96.4 },
-    { id: 'b6', datum: '2026-05-20', art: 'e', kategorie: 'Vermietung', text: 'R-2026-005 Hövel', betrag: 290 },
-    { id: 'b7', datum: '2026-05-22', art: 'a', kategorie: 'Wartung', text: 'Hydraulikölwechsel Bagger', betrag: 210 },
-    { id: 'b8', datum: '2026-05-29', art: 'e', kategorie: 'Vermietung', text: 'R-2026-007 Schmitz', betrag: 130 },
+    { id: 'b1',  datum: '2026-04-17', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-001 Krämer',  betrag: 230 },
+    { id: 'b2',  datum: '2026-04-22', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-002 Becker',  betrag: 170 },
+    { id: 'b3',  datum: '2026-04-10', art: 'a', kategorie: 'Versicherung',  text: 'Maschinenversicherung Q2', betrag: 145 },
+    { id: 'b4',  datum: '2026-05-03', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-003 Thelen',  betrag: 430 },
+    { id: 'b5',  datum: '2026-05-05', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-004 Wagner',  betrag: 50 },
+    { id: 'b6',  datum: '2026-05-12', art: 'a', kategorie: 'Diesel/Betrieb', text: 'Diesel + AdBlue',    betrag: 96.4 },
+    { id: 'b7',  datum: '2026-05-18', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-006 Klein',   betrag: 340 },
+    { id: 'b8',  datum: '2026-05-22', art: 'a', kategorie: 'Wartung',       text: 'Hydraulikölwechsel Bagger', betrag: 210 },
+    { id: 'b9',  datum: '2026-05-29', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-005 Hövel',   betrag: 270 },
+    { id: 'b10', datum: '2026-06-01', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-007 Schmitz', betrag: 20 },
+    { id: 'b11', datum: '2026-06-01', art: 'e', kategorie: 'Vermietung',    text: 'R-2026-008 Becker',  betrag: 180 },
   ];
 
   // ---- Helfer ----
@@ -202,6 +239,37 @@
       angebot:  { prefix: 'A',  start: 1 },
       auftrag:  { prefix: 'AU', start: 1 },
       belegung: { prefix: 'BL', start: 1 },
+    },
+    // Standard-Versandtexte (E-Mail / WhatsApp / SMS). Platzhalter in {…} werden beim Versand ersetzt:
+    // {kunde} {nummer} {datum} {betrag} {faellig} {gueltig} {leistungen} {firma} {inhaber} {telefon}
+    versandTexte: {
+      angebot: [
+        'Hallo {kunde},', '',
+        'hiermit erhalten Sie unser Angebot {nummer} vom {datum}.', '',
+        'Leistungen:', '{leistungen}', '',
+        'Gesamtbetrag: {betrag}', 'Gültig bis: {gueltig}', '',
+        'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.', '',
+        'Bei Fragen oder zur Auftragsbestätigung antworten Sie einfach auf diese Nachricht oder rufen Sie uns an:', '{telefon}', '',
+        'Mit freundlichen Grüßen', '{inhaber} · {firma}',
+      ].join('\n'),
+      rechnung: [
+        'Hallo {kunde},', '',
+        'hiermit erhalten Sie unsere Rechnung {nummer} vom {datum}.', '',
+        'Leistungen:', '{leistungen}', '',
+        'Gesamtbetrag: {betrag}', '',
+        'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.', '',
+        'Bitte überweisen Sie den Gesamtbetrag bis zum {faellig} unter Angabe der Rechnungsnummer {nummer}.', '',
+        'Mit freundlichen Grüßen', '{inhaber} · {firma}',
+      ].join('\n'),
+      mietvertrag: [
+        'Hallo {kunde},', '',
+        'anbei der Mietvertrag zu Ihrer Anmietung ({nummer}).', '',
+        'Leistungen:', '{leistungen}', '',
+        'Gesamtbetrag: {betrag}', '',
+        'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.', '',
+        'Bitte bringen Sie den unterschriebenen Mietvertrag zur Geräteübergabe mit, oder antworten Sie auf diese Nachricht.', '',
+        'Mit freundlichen Grüßen', '{inhaber} · {firma}',
+      ].join('\n'),
     },
   };
 
