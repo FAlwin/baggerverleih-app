@@ -9,10 +9,21 @@ function auZeitraum(F, a) {
   return d + z;
 }
 
-// Positionen aus der Geräte-Liste eines Auftrags ableiten (jedes Gerät → eine Position, Preis aus Tarif).
+// Eine Zusatzleistung (aus der Anfrage durchgereicht) in eine Rechnungs-/Angebotsposition wandeln.
+function zusatzPosition(z, store) {
+  if (z.art === 'stunde') return { text: z.label || 'Mit Fahrer', einheit: 'Stunde', menge: Number(z.stunden != null ? z.stunden : 1) || 1, preis: z.preis || 0 };
+  if (z.art === 'auswahl') {
+    const namen = (z.ids || []).map((id) => (store.geraetById(id) || {}).name).filter(Boolean).join(', ');
+    return { text: (z.label || 'Zubehör') + (namen ? ' (' + namen + ')' : ''), einheit: 'Pauschale', menge: 1, preis: z.betrag || 0 };
+  }
+  // stueckTag / anfahrt / pauschale: vorberechneten Betrag als Pauschalzeile (Summe bleibt korrekt)
+  return { text: z.label || 'Zusatzleistung', einheit: 'Pauschale', menge: 1, preis: z.betrag || 0 };
+}
+
+// Positionen aus der Geräte-Liste eines Auftrags ableiten: je Gerät eine Geräteposition + dessen Zusatzleistungen.
 function positionenAusGeraete(a, store) {
   const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId, einheit: a.einheit, dauer: a.dauer, von: a.von, bis: a.bis }];
-  return liste.filter((ge) => ge.geraetId).map((ge) => {
+  return liste.filter((ge) => ge.geraetId).flatMap((ge) => {
     const gg = store.geraetById(ge.geraetId);
     const tarife = (gg && gg.tarif) || [];
     const wunsch = ge.einheit || '';
@@ -23,7 +34,9 @@ function positionenAusGeraete(a, store) {
     const menge = /stunden/i.test(tar.einheit)
       ? 1
       : (Number(ge.dauer) || (ge.von && ge.bis ? window.tageZwischen(ge.von, ge.bis) : 1) || 1);
-    return { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: ge.preis != null ? ge.preis : tar.preis };
+    const geraetPos = { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: tar.preis };
+    const zusatzPos = (Array.isArray(ge.zusatz) ? ge.zusatz : []).filter((z) => (z.preis || z.betrag)).map((z) => zusatzPosition(z, store));
+    return [geraetPos, ...zusatzPos];
   });
 }
 
@@ -114,11 +127,11 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
         footer={<window.UI.Btn variant="ghost" onClick={() => setNeuOpen(false)}>Abbrechen</window.UI.Btn>}>
         <div className="stack" style={{ gap: 12 }}>
           <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Wie möchtest du starten?</div>
-          <button onClick={() => { setNeuOpen(false); nav('kalender', { neu: 'auftrag' }); }} style={auswahlBtn}>
+          <button onClick={() => { setNeuOpen(false); nav('anfragen', { neu: 1 }); }} style={auswahlBtn}>
             <Icon name="kalender" size={22} color="var(--ink)" style={{ flex: '0 0 auto' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>Direkt buchen</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Maschine fest für einen Kunden eintragen – ohne Angebot.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Anfrage mit Gerät & Zeitraum erfassen – wird zum Auftrag.</div>
             </div>
             <Icon name="chevron" size={16} color="var(--muted-2)" />
           </button>
@@ -245,11 +258,18 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   }
 
   // Reserviert → Gerät übergeben (Im Einsatz). Wird automatisch bei MV-Unterschrift gesetzt; hier auch manuell.
-  if (a.status === 'reserviert') return {
-    primary: { label: 'Gerät übergeben (Im Einsatz)', icon: 'arrowRight', hint: 'Wird automatisch gesetzt, sobald der Mietvertrag beidseitig unterschrieben ist.',
-      action: () => { store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert'); } },
-    secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
-  };
+  if (a.status === 'reserviert') {
+    const mvSigned = !!(a.mietvertrag && a.mietvertrag.signaturMieter && a.mietvertrag.signaturVermieter);
+    return {
+      primary: { label: 'Gerät übergeben (Im Einsatz)', icon: 'arrowRight',
+        hint: mvSigned ? 'Mietvertrag ist beidseitig unterschrieben – Übergabe kann erfolgen.' : 'Bei der Übergabe sollte der Mietvertrag unterschrieben werden (Abschnitt „Mietvertrag").',
+        action: () => {
+          if (!mvSigned && !window.confirm('Der Mietvertrag ist noch nicht beidseitig unterschrieben.\n\nGerät trotzdem als übergeben („Im Einsatz") markieren?\n\nTipp: Den Mietvertrag im Auftrag erstellen und unterschreiben lassen.')) return;
+          store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert');
+        } },
+      secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
+    };
+  }
   // Im Einsatz → Rückgabe (Einsatz beenden), dann Rechnung, dann Zahlung.
   if (a.status === 'einsatz') return {
     primary: { label: 'Rückgabe & Abschluss', icon: 'check', hint: 'Einsatz beenden: Rückgabe erfassen (Zustand, Betankung, Betriebsstunden). Danach folgt die Rechnung.',
@@ -527,6 +547,14 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
 
           </div>
         </div>
+
+        {/* Verlauf dieses Auftrags */}
+        {(() => { const evs = (store.db.verlauf || []).filter((e) => e.auftragId === a.id); return (
+          <window.UI.Card style={{ padding: '14px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Icon name="clock" size={16} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Verlauf</h2></div>
+            <window.VerlaufTimeline events={evs} store={store} nav={nav} />
+          </window.UI.Card>
+        ); })()}
 
         {/* Auftrag löschen */}
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -1072,6 +1100,44 @@ window.Screens.mietvertraege = function Mietvertraege({ nav, params = {}, mobile
             {rows.length === 0 && <window.UI.Empty icon="file" title="Keine Mietverträge" sub="Sobald Aufträge reserviert sind, erscheinen sie hier zum Unterschreiben." />}
           </div>
         </window.UI.Card>
+      </div>
+    </>
+  );
+};
+
+/* ============ Verlaufsbericht (Aktivitäts-Log) ============ */
+window.VerlaufTimeline = function VerlaufTimeline({ events, store, nav }) {
+  const VFARBE = { anfrage: '#6B6B66', auftrag: '#141414', angebot: '#2B6CB0', mietvertrag: '#E0AC00', status: '#141414', rueckgabe: '#F39222', rechnung: '#2F7D3A' };
+  const fmtTs = (ts) => { try { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0'); return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() + ' · ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ' Uhr'; } catch (e) { return ''; } };
+  if (!events || !events.length) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Noch keine Einträge.</div>;
+  return (
+    <div className="stack" style={{ gap: 0 }}>
+      {events.map((e, i) => (
+        <div key={e.id || i} style={{ display: 'flex', gap: 11, padding: '10px 0', borderTop: i ? '1px solid var(--paper-3)' : 'none' }}>
+          <span style={{ flex: '0 0 auto', width: 10, height: 10, borderRadius: 5, background: VFARBE[e.typ] || 'var(--muted-2)', marginTop: 4 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{e.text}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+              {fmtTs(e.ts)}
+              {e.auftragId && nav ? <> · <button onClick={() => nav('auftrag', { id: e.auftragId })} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', font: 'inherit', fontSize: 11.5, textDecoration: 'underline' }}>{e.auftragId}</button></> : null}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+window.Screens.verlauf = function Verlauf({ nav, mobile, onMenu, PageHeader }) {
+  const store = window.useStore();
+  const events = store.db.verlauf || [];
+  return (
+    <>
+      <PageHeader kicker="Aktivität" title="Verlauf" mobile={mobile} onMenu={onMenu} />
+      <div className="content-pad">
+        {events.length === 0
+          ? <window.UI.Empty icon="clock" title="Noch kein Verlauf" sub="Sobald Anfragen, Aufträge, Angebote, Mietverträge oder Rechnungen bearbeitet werden, erscheinen die Schritte hier chronologisch." />
+          : <window.UI.Card style={{ padding: '8px 18px' }}><window.VerlaufTimeline events={events} store={store} nav={nav} /></window.UI.Card>}
       </div>
     </>
   );

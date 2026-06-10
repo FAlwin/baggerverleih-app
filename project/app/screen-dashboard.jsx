@@ -22,6 +22,21 @@ function GeraeteStandort({ store, nav }) {
   const mapRef = React.useRef(null);
   const mapObj = React.useRef(null);
   const markers = React.useRef([]);
+  const ptsRef = React.useRef([]);
+  const [full, setFull] = React.useState(false);
+  // Beim Wechsel Karte ↔ Vollbild Leaflet-Größe neu berechnen + neu einpassen (gleiche Karteninstanz)
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (!mapObj.current) return;
+        mapObj.current.invalidateSize(true);
+        if (ptsRef.current && ptsRef.current.length) mapObj.current.fitBounds(ptsRef.current, { padding: [40, 40], maxZoom: 12 });
+        else { const c = mapObj.current.getCenter(); mapObj.current.setView(c, mapObj.current.getZoom(), { animate: false }); }
+      } catch (e) {}
+    }, 180);
+    return () => clearTimeout(t);
+  }, [full]);
+  React.useEffect(() => { if (!full) return; const onKey = (e) => { if (e.key === 'Escape') setFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [full]);
   const cacheGet = () => { try { return JSON.parse(localStorage.getItem('friesen_geocache') || '{}'); } catch (e) { return {}; } };
   const cacheSet = (c) => { try { localStorage.setItem('friesen_geocache', JSON.stringify(c)); } catch (e) {} };
 
@@ -40,6 +55,17 @@ function GeraeteStandort({ store, nav }) {
       if (!mapObj.current) return;
       markers.current.forEach((m) => { try { m.remove(); } catch (e) {} });
       markers.current = [];
+      // Farbige Stecknadel je Gerät (Gerätefarbe)
+      const mkPin = (color, label) => window.L.divIcon({
+        className: '',
+        html: '<div style="position:relative;width:28px;height:36px;">'
+          + '<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">'
+          + '<path d="M14 0C6.27 0 0 6.27 0 14c0 9.5 14 22 14 22s14-12.5 14-22C28 6.27 21.73 0 14 0z" fill="' + color + '" stroke="#fff" stroke-width="2"/>'
+          + '<circle cx="14" cy="14" r="6" fill="#fff"/></svg>'
+          + (label ? '<span style="position:absolute;top:7px;left:0;width:28px;text-align:center;font:700 8px var(--mono,monospace);color:#141414;">' + label + '</span>' : '')
+          + '</div>',
+        iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -32],
+      });
       const cache = cacheGet();
       const pts = [];
       for (const r of einsatz) {
@@ -56,12 +82,13 @@ function GeraeteStandort({ store, nav }) {
         if (abort || !mapObj.current) return;
         if (coord) {
           const k = store.kundeById(r.a.kundeId);
-          const m = window.L.marker([coord.lat, coord.lng]).addTo(mapObj.current)
+          const m = window.L.marker([coord.lat, coord.lng], { icon: mkPin(r.g.farbe || '#F7C72A', r.g.kuerzel) }).addTo(mapObj.current)
             .bindPopup('<b>' + r.g.name + '</b><br>' + (k ? k.name : '') + '<br>' + ort);
           markers.current.push(m);
           pts.push([coord.lat, coord.lng]);
         }
       }
+      ptsRef.current = pts;
       if (!abort && pts.length && mapObj.current) { try { mapObj.current.fitBounds(pts, { padding: [30, 30], maxZoom: 12 }); } catch (e) {} }
     })();
     return () => { abort = true; };
@@ -71,8 +98,23 @@ function GeraeteStandort({ store, nav }) {
     <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '15px 18px', borderBottom: '1.5px solid var(--line)' }}>
         <Icon name="pin" size={18} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Wo ist welches Gerät?</h2>
+        <button onClick={() => setFull(true)} title="Karte im Vollbild" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '5px 10px', cursor: 'pointer' }}>
+          <Icon name="width" size={14} /> Vollbild
+        </button>
       </div>
-      <div ref={mapRef} style={{ height: 240, width: '100%', background: 'var(--paper-3)' }} />
+      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative' }}>
+        <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
+        {full && (
+          <>
+            <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 401, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--paper)', borderRadius: 'var(--r)', boxShadow: 'var(--shadow)', padding: '8px 12px' }}>
+              <Icon name="pin" size={16} /><span style={{ fontWeight: 700, fontSize: 14 }}>Wo ist welches Gerät?</span>
+            </div>
+            <button onClick={() => setFull(false)} title="Schließen" style={{ position: 'absolute', top: 14, right: 14, zIndex: 401, display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', background: 'var(--paper)', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', padding: '9px 13px', cursor: 'pointer', boxShadow: 'var(--shadow)' }}>
+              <Icon name="x" size={16} /> Schließen
+            </button>
+          </>
+        )}
+      </div>
       <div>
         {rows.map((r) => {
           const k = r.a ? store.kundeById(r.a.kundeId) : null;
@@ -215,7 +257,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
       </div>
       {(() => {
         const WIDGETS = {
-          standort: { title: 'Wo ist welches Gerät?', icon: 'pin', span: true, empty: false,
+          standort: { title: 'Wo ist welches Gerät?', icon: 'pin', span: false, empty: false,
             node: <GeraeteStandort store={store} nav={nav} /> },
           auslieferungen: { title: 'Auslieferungen · diese Woche', icon: 'file', empty: auslieferungen.length === 0,
             node: (
@@ -306,7 +348,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
             ) },
         };
         return (
-          <div className="content-pad split-2" style={{ alignContent: 'start', alignItems: 'start' }}>
+          <div className={'content-pad ' + (dashEdit ? 'split-2' : 'dash-masonry')} style={{ alignContent: 'start', alignItems: 'start' }}>
             {order.map((id) => {
               const w = WIDGETS[id];
               if (!w) return null;
@@ -323,7 +365,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
                 );
               }
               if (w.empty) return null;
-              return <div key={id} style={w.span ? { gridColumn: '1 / -1' } : undefined}>{w.node}</div>;
+              return <div key={id} className="dash-tile">{w.node}</div>;
             })}
           </div>
         );
