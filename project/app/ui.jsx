@@ -79,7 +79,7 @@ UI.Select = function Select({ children, style, ...props }) {
   );
 };
 
-UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer }) {
+UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer, guard }) {
   const isMob = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
   const [phase, setPhase] = React.useState('enter');   // 'enter' | 'open' | 'closing'
   const [dragY, setDragY] = React.useState(0);          // Ziehversatz nach unten (px), für Render
@@ -94,7 +94,10 @@ UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer 
   }, [open]);
   if (!open) return null;
 
-  const close = () => { if (isMob) { setPhase('closing'); setTimeout(onClose, 300); } else onClose(); };
+  const close = () => {
+    if (guard && !guard()) { dragRef.current = 0; setDragY(0); return; } // abgebrochen → Drawer zurückschnappen
+    if (isMob) { setPhase('closing'); setTimeout(onClose, 300); } else onClose();
+  };
   // Ziehen am Griff (nur mobil): runter = wegschieben/durchschauen; weit genug → schließen.
   // Refs statt State, damit synchrone Pointer-Events nicht an veralteten Closures scheitern.
   const onDown = (e) => { startY.current = e.clientY; draggingRef.current = true; dragRef.current = 0; setDragY(0); try { e.target.setPointerCapture(e.pointerId); } catch (_) {} };

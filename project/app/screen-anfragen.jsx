@@ -556,10 +556,17 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
     toast('Anfrage gespeichert');
     reset(); onClose(); onSaved && onSaved();
   };
-  const close = () => { onClose(); };
+  // „Dirty" = es wurde etwas eingegeben/gewählt (dann beim Schließen Rückfrage)
+  const dirty = () => {
+    if (form.name || form.phone || form.email || form.ort || form.nachricht) return true;
+    if (rows.length > 1) return true;
+    return rows.some((r) => r.von || r.bis || r.sel || (r.geraetId && r.geraetId !== 'bagger') || Object.values(r.zusatz || {}).some((z) => z && z.on));
+  };
+  const guard = () => !dirty() || window.confirm('Anfrage verwerfen?\nDeine Eingaben gehen verloren.');
+  const close = () => { reset(); onClose(); };
 
   return (
-    <window.UI.Modal open={open} onClose={close} title="Neue Anfrage erfassen" width={460}
+    <window.UI.Modal open={open} onClose={close} guard={guard} title="Neue Anfrage erfassen" width={460}
       footer={<div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
         <div style={{ flex: '0 0 auto' }}>
           <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted-2)' }}>Voraussichtl.</div>
