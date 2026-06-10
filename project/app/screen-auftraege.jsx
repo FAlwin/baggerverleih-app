@@ -114,11 +114,11 @@ window.Screens.auftraege = function Auftraege({ nav, params, mobile, onMenu, Pag
         footer={<window.UI.Btn variant="ghost" onClick={() => setNeuOpen(false)}>Abbrechen</window.UI.Btn>}>
         <div className="stack" style={{ gap: 12 }}>
           <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Wie möchtest du starten?</div>
-          <button onClick={() => { setNeuOpen(false); nav('kalender', { neu: 'auftrag' }); }} style={auswahlBtn}>
+          <button onClick={() => { setNeuOpen(false); nav('anfragen', { neu: 1 }); }} style={auswahlBtn}>
             <Icon name="kalender" size={22} color="var(--ink)" style={{ flex: '0 0 auto' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>Direkt buchen</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Maschine fest für einen Kunden eintragen – ohne Angebot.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>Anfrage mit Gerät & Zeitraum erfassen – wird zum Auftrag.</div>
             </div>
             <Icon name="chevron" size={16} color="var(--muted-2)" />
           </button>

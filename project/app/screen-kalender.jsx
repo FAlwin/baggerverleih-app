@@ -210,7 +210,7 @@ window.Screens = window.Screens || {};
         if (cur) {
           const days = Array.from({ length: 7 }, (_, i) => A(weekStart, i));
           const lo = Math.min(cur.a, cur.b), hi = Math.max(cur.a, cur.b);
-          openAdd(cur.gid, days[lo], days[hi]);
+          nav('anfragen', { neu: 1, von: days[lo], geraetId: cur.gid });
         }
         return null;
       });
@@ -223,7 +223,7 @@ window.Screens = window.Screens || {};
 
     // Aus „Aufträge → Neuer Auftrag → Direkt buchen": Buchungs-Dialog automatisch öffnen
     useEffect(() => {
-      if (params && params.neu === 'auftrag') openAdd(machines[0]?.id, store.today, store.today, { art: 'vermietung' });
+      if (params && params.neu === 'auftrag') nav('anfragen', { neu: 1 });   // Vermietung läuft über die Anfrage
       else if (params && params.neu === 'belegung') openAdd(machines[0]?.id, store.today, store.today, { art: 'belegung' });
       // eslint-disable-next-line
     }, []);
@@ -290,7 +290,7 @@ window.Screens = window.Screens || {};
                         {week.map((day, di) => {
                           const isToday = day === store.today;
                           return (
-                            <div key={di} onClick={() => { if (day) openAdd(machines[0]?.id, day, day); }}
+                            <div key={di} onClick={() => { if (day) nav('anfragen', { neu: 1, von: day }); }}
                               style={{ borderLeft: di > 0 ? '1px solid var(--paper-3)' : 'none', background: isToday ? 'var(--yellow-wash)' : day && isWeekend(day) ? 'var(--paper-2)' : 'transparent', cursor: day ? 'copy' : 'default', padding: '5px 8px' }}
                               title={day ? 'Klicken, um zu buchen' : ''}>
                               {day ? <span className="mono" style={{ fontSize: 12.5, fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--yellow-deep)' : day < store.today ? 'var(--muted-2)' : 'var(--ink)' }}>{parseInt(day.slice(8), 10)}</span> : null}
@@ -539,7 +539,7 @@ window.Screens = window.Screens || {};
                   {machines.map((g) => {
                     const ts = itemsForGeraet(g.id).filter((t) => d >= t.von && d <= t.bis);
                     return (
-                      <div key={g.id} onClick={() => openAdd(g.id, d, d)} style={{ flex: 1, position: 'relative', borderLeft: '1px solid var(--paper-3)', cursor: 'copy' }}>
+                      <div key={g.id} onClick={() => nav('anfragen', { neu: 1, von: d, geraetId: g.id })} style={{ flex: 1, position: 'relative', borderLeft: '1px solid var(--paper-3)', cursor: 'copy' }}>
                         {ts.map((t) => {
                           const p = dayPortion(t, d);
                           const ap = barAppearance(t);
@@ -579,7 +579,7 @@ window.Screens = window.Screens || {};
             <UI.Btn variant={view === 'month' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('month')}>Monat</UI.Btn>
             <UI.Btn variant={view === 'week' ? 'dark' : 'ghost'} size="sm" onClick={() => setView('week')}>Woche</UI.Btn>
           </div>
-          <UI.Btn icon="plus" onClick={() => openAdd(machines[0]?.id, store.today, store.today)}>{mobile ? 'Neu' : 'Neuer Termin'}</UI.Btn>
+          <UI.Btn icon="plus" onClick={() => openAdd(machines[0]?.id, store.today, store.today, { art: 'belegung' })}>{mobile ? 'Blocken' : 'Gerät blocken'}</UI.Btn>
         </PageHeader>
 
         <div className="content-pad">
@@ -734,7 +734,7 @@ window.Screens = window.Screens || {};
 
         {/* Tages-Agenda (Mobil): Tag antippen → Buchungen des Tages */}
         <UI.Modal open={!!daySheet} onClose={() => setDaySheet(null)} title={daySheet ? F.fmtDate(daySheet) : ''} width={420}
-          footer={<UI.Btn icon="plus" onClick={() => { const d = daySheet; setDaySheet(null); openAdd(machines[0]?.id, d, d); }}>Neuer Termin</UI.Btn>}>
+          footer={<UI.Btn icon="plus" onClick={() => { const d = daySheet; setDaySheet(null); nav('anfragen', { neu: 1, von: d }); }}>Anfrage für diesen Tag</UI.Btn>}>
           {daySheet && (() => {
             const list = items.filter((t) => daySheet >= t.von && daySheet <= t.bis)
               .sort((a, b) => (a.vonZeit || '').localeCompare(b.vonZeit || ''));

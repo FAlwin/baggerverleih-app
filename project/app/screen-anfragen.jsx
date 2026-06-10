@@ -541,13 +541,21 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 
 // ---- Neues Anfrage-Modal (Phase 2) ----
 const LEER_ROW = () => ({ geraetId: 'bagger', von: '', bis: '', vonZeit: '07:00', bisZeit: '17:00', dauer: 1, einheit: 'Tag', gran: 1, sel: null, modus: 'stunde', zusatz: {} });
-function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
+function NeueAnfrageModal({ open, onClose, store, F, onSaved, prefill }) {
   const [form, setForm] = anfS({ name: '', phone: '', email: '', ort: '', nachricht: '' });
   const [rows, setRows] = anfS([LEER_ROW()]);
   const [activeIdx, setActiveIdx] = anfS(0);
   const toast = window.UI.useToast();
   const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
   const total = rows.reduce((a, r) => a + blockBetrag(store, r), 0);
+  // Vorbefüllung (z. B. aus dem Kalender-Klick): Datum + ggf. Gerät übernehmen
+  React.useEffect(() => {
+    if (!open || !prefill || (!prefill.von && !prefill.geraetId)) return;
+    const pg = prefill.geraetId && store.geraetById(prefill.geraetId);
+    const gid = pg && window.istVermietbar(pg) ? prefill.geraetId : 'bagger';
+    setRows([{ ...LEER_ROW(), geraetId: gid, von: prefill.von || '', bis: prefill.von || '' }]);
+    setActiveIdx(0);
+  }, [open]);
 
   const rowOk = (r) => { const g = store.geraetById(r.geraetId); if (!g) return false; if (isHourMode(g)) return r.modus === 'tage' ? !!r.von : (!!r.von && !!r.sel); return !!r.von && !!r.bis; };
   const valid = form.name.trim() && form.phone.trim() && form.email.trim() && form.ort.trim() && form.nachricht.trim() && rows.length && rows.every(rowOk);
@@ -788,7 +796,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
       </div>
 
       {/* Neue Anfrage intern erfassen (Phase 2: Picker + Zeitachse + Zusatzleistungen) */}
-      <NeueAnfrageModal open={neuOpen} onClose={() => setNeuOpen(false)} store={store} F={F} />
+      <NeueAnfrageModal open={neuOpen} onClose={() => setNeuOpen(false)} store={store} F={F} prefill={{ von: params.von, geraetId: params.geraetId }} />
 
       {/* Detail-Modal */}
       <window.UI.Modal open={!!detail} onClose={() => setDetail(null)} title="Anfrage" width={480}
