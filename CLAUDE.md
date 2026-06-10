@@ -73,20 +73,28 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 
 ### 1. Dashboard
 - KPI-Streifen: Offene Rechnungen, Umsatz aktueller Monat, ausstehende Beträge, aktive Geräte
-- Wochenplan-Matrix: Gerät × Wochentag, zeigt Buchungsstatus auf einen Blick
-- Nächste Termine, offene Rechnungen, Geräte-Statusübersicht
+- **Masonry-Layout** am PC (Kacheln packen sich dicht, kein großer Leerraum); Reihenfolge im Bearbeiten-Modus „Kacheln anordnen" verschiebbar (`friesen_dash_order`)
+- Karte **„Wo ist welches Gerät?"** (Leaflet + Nominatim-Geocoding): **farbige Stecknadel je Gerät** (Gerätefarbe + Kürzel) für Geräte im Einsatz, **Vollbild**-Ansicht (Button/Esc). Am PC kleine Kachel.
+- Auslieferungen/Rückgaben diese Woche, offene Aktionen, Rechnungsstatus-Balken
 
-### 2. Anfragen (`screen-anfragen.jsx`)
-- Eingehende Kundenanfragen verwalten
-- Status: neu / in Bearbeitung / abgeschlossen
-- Badge in Navigation bei neuen Anfragen
+### 2. Anfragen (`screen-anfragen.jsx`) — zentrale Erfassung
+- Inbox eingehender Anfragen (Status neu/in-bearbeitung/erledigt/abgelehnt); „Annehmen" → Auftrag.
+- **Neuer Anfrage-Screen `NeueAnfrageModal`** (löst altes Inline-Formular ab):
+  - **Geräte-Picker** (Karten mit Abrechnungsmodell-Chip + Preisvorschau), **mehrere Geräte** (vorheriges klappt zur Kachel ein).
+  - **Verfügbarkeits-Kalender**: belegte/reservierte/gesperrte Tage nicht wählbar (mit erklärendem Hinweis); lange Mieten überspannen Wochenenden; freies Tage-Feld + Schnellwahl.
+  - **Buchungsart-Umschalter „Stundenweise | Mehrere Tage"** bei Stunden-/Staffelgeräten.
+  - **Stunden-Zeitachse** (`StundenAchse`, 07–18 Uhr): zieh-/tippbar, Belegt-Schraffur, 30/60-Min-Granularität, konfliktsichere Bereichslogik (`computeRange`), Staffel-Pakete (Mindestdauer = kleinstes Paket).
+  - **Zusatzleistungen** je Gerät als Toggles (Fahrer/Löffel-Auswahl/Anfahrt/Reinigung) mit Live-Betrag; fließen in Summe.
+  - **Einsatzort-Adressprüfung** (Geocoding) beim Speichern; **Schließen-Bestätigung** bei Eingaben (`UI.Modal guard`).
+- Badge in Navigation bei neuen Anfragen.
 
 ### 3. Kalender (`screen-kalender.jsx`)
 - **Stundengenaue Belegungsbalken** (Arbeitstag-Fenster aus `settings.geschaeftszeitVon/Bis`).
-- Desktop: **Monats-Raster** mit Gerätespuren (eine Spur je Gerät) + **Wochen-Plantafel** (Gerät × Tag) mit Drag-to-book.
-- Mobil: durchlaufende **Apple-Style-Monatsliste** + Wochenansicht (Tage als Zeilen, Geräte als Spalten).
-- Zeigt Aufträge (mehrgeräte-aufgefächert), Belegungen (Privat/Wartung) und offene Anfragen; Reservierungen/Anfragen **gestrichelt**.
-- **Konflikt-Erkennung uhrzeitgenau:** Doppelbuchung desselben Geräts wird blockiert; zwei zeitlich getrennte Buchungen am selben Tag sind erlaubt.
+- Desktop: **Monats-Raster** mit Gerätespuren + **Wochen-Plantafel** (Gerät × Tag).
+- Mobil: durchlaufende **Monatsliste** (heutiger Tag gelb gefüllt) + Wochenansicht.
+- **Klick auf Tag/Slot/Ziehen öffnet „Neue Anfrage" mit Datum (+ Gerät) vorbefüllt** – keine eigene Schnellbuchung mehr (alles über den Auftrag). Button **„Gerät blocken"** legt eine Belegung (Privat/Wartung) an.
+- Zeigt Aufträge (mehrgeräte-aufgefächert), Belegungen und offene Anfragen; Reservierungen/Anfragen **gestrichelt**.
+- **Konflikt-Erkennung uhrzeitgenau:** Doppelbuchung wird blockiert; zwei zeitlich getrennte Buchungen am selben Tag sind erlaubt.
 
 ### 4. Rechnungen (`screen-rechnungen.jsx`)
 - Liste aller Rechnungen mit Status: offen / bezahlt / überfällig / Mahnung
@@ -109,12 +117,19 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 
 ### 8. Flotte (`screen-flotte.jsx`)
 - Geräteverwaltung: Minibagger, Plateauanhänger, Betonrüttler, Anbaugeräte
-- Tarife pro Gerät editierbar (Einheit + Preis)
-- Gerät hinzufügen / bearbeiten / löschen
+- Tarife pro Gerät editierbar (Einheit + Preis) + **Abrechnungsmodell** (Tag/Stunde/Staffel)
+- **Zusatzleistungs-Editor** je Gerät (Fahrer, Löffel-Auswahl, Anfahrt, Reinigung) – erscheinen im Anfrage-Screen
+- **„Einzeln vermietbar"-Schalter** (`vermietbar`) – Anbaugeräte optional als eigenständig buchbar
+- Geräte-Logbuch (Betriebsstunden, Mängel/Reparaturen, Rückgaben automatisch)
 
 ### 9. Buchhaltung (`screen-buchhaltung.jsx`)
 - Einnahmenübersicht nach Monat
 - Auswertungen für Steuererklärung (Kleinunternehmer § 19 UStG)
+
+### 10. Verlauf (`screen-auftraege.jsx` → `window.Screens.verlauf`)
+- **Globaler Aktivitäts-Log**: chronologische Liste aller Vorgänge (Anfrage erfasst, Auftrag angelegt, Angebot/Rechnung erstellt & versendet, Mietvertrag unterschrieben, Status-Übergänge, Rückgabe, bezahlt) mit Zeitstempel + Link zum Auftrag.
+- Zusätzlich **Verlaufs-Timeline je Auftrag** (`window.VerlaufTimeline`) in der Auftrag-Detailansicht.
+- Quelle: `db.verlauf[]`, vom Store via `withLog()` bei Mutationen gefüllt.
 
 ---
 
@@ -122,24 +137,33 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 
 ```js
 COMPANY       // Stammdaten Inhaber (Name, Adresse, IBAN, Steuernummer, ...)
-FLOTTE        // Geräte: id, name, detail, kat, kuerzel, farbe, tarif[] (inkl. „Tag"-Tarif)
-PREISLISTE    // Sonderleistungen: Transport, Reinigung (id, geraet, einheit, preis)
+FLOTTE        // Geräte: id, name, detail, kat, kuerzel, farbe, tarif[] (Einheit+Preis),
+              //   modell ('tag'|'stunde'|'staffel' = Abrechnung/Zeitwahl),
+              //   vermietbar? (bool; default aus kat: Maschine/Transport=ja),
+              //   zusatz[] ← Zusatzleistungen je Gerät, art:
+              //     'stunde'(Fahrer €/Std) | 'stueckTag'(€/Stk·Tag, inklusive N) |
+              //     'auswahl'(Mehrfachauswahl konkreter Geräte via geraetIds, N inkl., Rest €/Stk·Tag, z.B. Löffel) |
+              //     'anfahrt'(p15/p30/kmSatz) | 'pauschale'(€ einmalig, z.B. Reinigung)
+PREISLISTE    // Sonstige Servicepositionen (id, geraet, einheit, preis) – editierbar in der Flotte
 KUNDEN        // id, name, kontakt, street, city, phone, email, typ (Privat|Gewerbe)
-RECHNUNGEN    // id, kundeId, datum, faellig, status, positionen[], betrag, bezahltAm?, auftragId?
-ANGEBOTE      // id, kundeId, datum, gueltigBis, status, positionen[], betrag, auftragId?, von?, bis?, geraetId?, ort?
+RECHNUNGEN    // id, kundeId, datum, faellig, status, positionen[], betrag, bezahltAm?, versendetAm?, auftragId?
+ANGEBOTE      // id, kundeId, datum, gueltigBis, status, positionen[], betrag, versendetAm?, auftragId?, von?, bis?, geraetId?, ort?
 AUFTRAEGE     // ZENTRALE KLAMMER (ersetzt TERMINE): id, typ, kundeId, ort, status, anfrageId?, angebotId?, rechnungId?, notiz,
-              //   geraete[]{geraetId,von,bis,vonZeit,bisZeit}  ← MEHRGERÄTE (eigener Zeitraum je Gerät),
+              //   geraete[]{geraetId,von,bis,vonZeit,bisZeit,einheit,dauer,zusatz[]}  ← MEHRGERÄTE (eigener Zeitraum + Zusatzleistungen je Gerät),
               //   primäre Felder geraetId/von/bis/vonZeit/bisZeit sind auf geraete[0] gespiegelt (Abwärtskompat. ~48 Lesestellen),
-              //   mietvertrag?{signaturVermieter,signaturMieter,positionen,datum,gesperrt}
+              //   mietvertrag?{signaturVermieter,signaturMieter,positionen,datum,versendetAm?,gesperrt}, rueckgabe?{zustand,betankung,stunden,datum}
 BELEGUNGEN    // Gerät OHNE Auftrag geblockt (Privat/Wartung): id, grund, geraetId, von, bis, vonZeit, bisZeit, ort, notiz (nur Kalender)
 BUCHUNGEN     // id, datum, art (e|a), kategorie, text, betrag
-ANFRAGEN      // id, datum, name, phone, email, ort, nachricht, status (neu|in-bearbeitung|erledigt),
-              //   geraete[]{geraetId,von,vonZeit,dauer,einheit,bis,bisZeit}  ← MEHRGERÄTE; primäre Felder gespiegelt
-SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So), nummern{}
+ANFRAGEN      // id, datum, name, phone, email, ort, nachricht, status (neu|in-bearbeitung|erledigt|abgelehnt),
+              //   geraete[]{geraetId,von,bis,vonZeit,bisZeit,einheit,dauer,zusatz[],preis}  ← MEHRGERÄTE; primäre Felder gespiegelt; preisSchaetzung
+VERLAUF       // Aktivitäts-Log (chronologisch): {id, ts (ISO), typ, text, auftragId?} – Store schreibt bei Mutationen mit (withLog)
+SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So), nummern{}, versandTexte
 ```
 
-**Auftrag-Lebenszyklus (`AUFTRAG_FLOW`):** `anfrage → angebot → reserviert → abgerechnet → bezahlt → abgeschlossen`.
+**Auftrag-Lebenszyklus (`AUFTRAG_FLOW`):** `anfrage → angebot → reserviert → einsatz → abgeschlossen → abgerechnet → bezahlt`
+(3 Phasen für den Stepper: **Planung · Einsatz · Abschluss**). Status „einsatz" = Gerät übergeben.
 Jeder Beleg (Angebot/Rechnung) gehört zu einem Auftrag; Erstellung läuft **immer über den Auftrag**.
+`window.istVermietbar(g)` entscheidet, ob ein Gerät eigenständig buchbar ist (Filter in Kalender/Anfrage/Dashboard).
 
 **Wichtig:** `kleinunternehmer: true` → keine USt auf Rechnungen, Pflichthinweis:
 *"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."*
@@ -183,16 +207,20 @@ Gewerbebeginn: 01.04.2026
 
 ## Gerätepark & Preise (verbindliche Preisliste, Stand Juni 2026)
 
-| Gerät | Detail | Tarif |
+| Gerät | Detail | Tarif (Abrechnungsmodell) |
 |---|---|---|
-| 1,9t Minibagger | Hitachi ZX18-3 CLR, Bj. 2014, ohne Fahrer, inkl. 1 Löffel | **60 €/Tag** (kein Wochenpreis) |
-| 1,9t Bagger mit Fahrer | inkl. 1 Löffel, zzgl. Tagesmiete | 25 €/Std |
-| Plateauanhänger | 2.700 kg GVW, 2×4 m, Auffahrrampen | **4 Std 35 € · 8 Std 50 € · Tag 60 €** |
-| Betonrüttler | 230 V | 20 €/Tag |
-| Tieflöffel 40/60 cm, Grabenräumlöffel 1,00 m | Anbaugerät | 1. Löffel inklusive, ab 2. Löffel 5 €/Tag |
-| Transport | Anlieferung & Abholung | bis 15 km 50 € · bis 30 km 100 € · über 30 km 30-km-Basis + 1 €/km |
+| 1,9t Minibagger | Hitachi ZX18-3 CLR, Bj. 2014, ohne Fahrer, inkl. 1 Löffel | **60 €/Tag** (`tag`) |
+| Plateauanhänger | 2.700 kg GVW, 2×4 m, Auffahrrampen | **4 Std 35 € · 8 Std 50 € · Tag 60 €** (`staffel`) |
+| Betonrüttler | 230 V | 20 €/Tag (`tag`) |
+| Tieflöffel 40/60 cm, Grabenräumlöffel 1,00 m | Anbaugerät | inklusive (als Zusatzleistung am Bagger; optional einzeln vermietbar) |
 
-**Einheiten sind gerätespezifisch fest** (keine freie/kleinere Auswahl): Bagger & Rüttler nur **Tag(e)**, Anhänger **4 Stunden / 8 Stunden / Tag(e)**. Stunden = fester Block (Menge 1), Tage = Anzahl × Tagespreis. Gilt im Kontaktformular, im internen Anfrage-Formular und in Angebot/Rechnung (`positionenAusGeraete`, `ZeitraumPicker` mit `einheiten`-Prop, `berechneEnde` mit „N Stunden"-Block). Die FLOTTE-Tarife in `data.js` sind die Quelle der wählbaren Einheiten.
+**Zusatzleistungen** (am Gerät hinterlegt, im Anfrage-Screen zuschaltbar → fließen in Angebot/Rechnung):
+- **Mit Fahrer** – 25 €/Std (Zusatzleistung des Baggers, KEIN eigenes Gerät)
+- **Löffel / Anbaugerät** – Auswahl aus Tieflöffel 40/60 cm + Grabenräumlöffel; 1 inklusive, jeder weitere 5 €/Tag
+- **Transport / Anfahrt** – bis 15 km 50 € · bis 30 km 100 € · über 30 km 100 € + 1 €/km
+- **Reinigungspauschale** – 100 € einmalig
+
+**Einheiten sind gerätespezifisch fest** (keine freie/kleinere Auswahl) und ergeben sich aus dem `modell`: `tag` (Bagger/Rüttler, Tage × Tagespreis), `staffel` (Anhänger, feste Blöcke 4h/8h/Tag) und `stunde`. Stunden-/Staffelgeräte sind **entweder** stundenweise an einem Tag **oder** mehrtägig zum Tagespreis buchbar. Quelle der wählbaren Einheiten: die FLOTTE-Tarife in `data.js`. Positionen werden aus den Geräten **plus deren Zusatzleistungen** abgeleitet (`positionenAusGeraete` + `zusatzPosition`).
 
 ---
 
@@ -231,12 +259,12 @@ baggerverleih-app/
 
 ## Prototyp-Implementierungsstand (Stand: Juni 2026)
 
-Lokal starten (Port frei wählbar, siehe Babel-Cache-Hinweis unten):
+Lokal starten:
 ```bash
 cd "/Volumes/nas.familieneufeld.de/homes/alwinf/Drive/Baggerverleih_App/project"
-python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverleih.html
+python3 -m http.server 8196   # → http://localhost:8196/Friesen%20Baggerverleih.html
 ```
-`.claude/launch.json` ist für die Preview-MCP hinterlegt (Server „friesen", Port 8195).
+Preview-MCP-Config in `.claude/launch.json` (Server „baggerverleih"). **Cache-Busting:** Nach jeder `.jsx`-Änderung die `?v=N`-Version des Script-Tags in `Friesen Baggerverleih.html` hochzählen + Hard-Reload (`Cmd+Shift+R`).
 
 ### Architektur & Konventionen (WICHTIG – hier zuerst lesen)
 
@@ -244,7 +272,7 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
   `window.Screens`, `window.useStore()`, `window.UI.*`, `window.Icon`, `window.Print.*`, `window.PDF`,
   `window.FRIESEN`, `window.PageHeader`, `window.addDays`/`berechneEnde`/`tageZwischen`/`istMiettag`,
   `window.__nav`/`__goBack`/`__miettage`. Reihenfolge der `<script>`-Tags in der HTML ist relevant.
-- **DB:** localStorage-Key `friesen_db_v4`. `loadDB()` mergt fehlende settings-Defaults nach (für Alt-Stände).
+- **DB:** localStorage-Key `friesen_db_v4`. `loadDB()` mergt fehlende Defaults nach (settings, `db.verlauf`, sowie `modell`/`zusatz` je Gerät aus dem Seed) – Alt-Stände bleiben kompatibel.
 - **React-Batching-Falle:** Rückgabewerte aus `setDb`-Updatern sind über mehrere Aufrufe unzuverlässig.
   → IDs **vorab** via `store.nextId(...)` aus `store.db` berechnen und Anlegen+Verknüpfen **atomar in EINEM `setDb`**
   machen (`belegAnlegen`, `annehmenAnfrage`).
@@ -304,12 +332,27 @@ python3 -m http.server 8195   # → http://localhost:8195/Friesen%20Baggerverlei
 - Generisch für `kind: 'angebot'|'rechnung'|'mietvertrag'` (E-Mail/WhatsApp/SMS, Text vorausgefüllt).
   Verfügbar in Vorschau **und** Kachel. PDF-Anhang muss manuell angehängt werden (kein Backend).
 
+**Zusatzleistungen & geräteabhängige Zeitwahl (`data.js`, `screen-flotte.jsx`, `screen-anfragen.jsx`)**
+- `data.js` exportiert `ABRECHNUNG_MODELLE` (tag/stunde/staffel), `ZUSATZ_ARTEN` (stunde/stueckTag/auswahl/anfahrt/pauschale) und `istVermietbar`. Globals: `window.istVermietbar(g)`, `window.zusatzPreisText(z,F,kurz)`.
+- Anfrage-Screen-Bausteine: `StundenAchse` (Zeitachse) + `computeRange` (konfliktsichere Bereichslogik, `minDur`), `VerfuegbarkeitsKalender`, `dayStatus`, `geocodeOrt` (Adressprüfung).
+
+**Durchreichen entlang der Kette (Phase 3a)**
+- `annehmen()` überträgt `geraete[].zusatz` in den Auftrag. `positionenAusGeraete()` erzeugt je Gerät die Geräteposition (Tarif-Stückpreis) **plus** je Zusatzleistung eine Position (`zusatzPosition`: Fahrer = Std×Satz, Rest Pauschale mit vorberechnetem Betrag). So erscheinen Zusatzleistungen automatisch in Angebot, Mietvertrag und Rechnung.
+
+**Status-Kopplung (Phase 3b)**
+- Mietvertrag beidseitig unterschrieben → Auftrag automatisch „einsatz" (`mietvertragSign`). Manuelles „Gerät übergeben" prüft die MV-Unterschrift und fragt sonst nach. Nach Rückgabe/Abschluss schlägt der nächste Schritt die Rechnung vor.
+
+**Verlaufsbericht (Phase 3c)**
+- Store schreibt bei Schlüsselmutationen Einträge nach `db.verlauf` (`withLog`): addAnfrage, annehmenAnfrage, belegAnlegen/convertAngebot, belegVersendet, mietvertragSign, setAuftragStatus(+Kaskade), auftragAbschliessen, markPaid. Anzeige via `window.VerlaufTimeline` + Screen `verlauf` (Nav „Verlauf").
+
 **Weiteres**
 - Konfliktprüfung `store.findConflict(geraetId, von, bis, exceptId, vonZeit?, bisZeit?)`: mehrgeräte-fähig
   (prüft jede `geraete[]`-Zeile einzeln) und **uhrzeitgenau** (ohne Uhrzeit-Argumente = datumsbasiert, abwärtskompatibel).
   Angebot zeigt frei/belegt + „nächster freier Start".
 - `normalizeOverdue`: offene Rechnungen mit Fälligkeit < heute werden beim Laden als „überfällig" geführt.
 - Live-A4-Vorschau via `window.useFitScale(793)`.
+- **Mobiler Drawer (`UI.Modal`):** fährt animiert aus, am Griff nach unten ziehbar, optionaler `guard()` für Schließen-Bestätigung bei ungespeicherten Eingaben.
+- ⚠️ **SynologyDrive-NAS:** Der Sync überschreibt Dateien gelegentlich mitten in Edits. Bei größeren Änderungen aus Git wiederherstellen, atomar in EINEM Befehl anwenden und sofort committen.
 
 ### Bekannte Einschränkungen (Prototyp)
 - Kein Backend: alle Daten im localStorage; Versand-PDF wird nicht automatisch angehängt.
