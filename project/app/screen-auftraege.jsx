@@ -11,11 +11,19 @@ function auZeitraum(F, a) {
 
 // Positionen aus der Geräte-Liste eines Auftrags ableiten (jedes Gerät → eine Position, Preis aus Tarif).
 function positionenAusGeraete(a, store) {
-  const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId }];
+  const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId, einheit: a.einheit, dauer: a.dauer, von: a.von, bis: a.bis }];
   return liste.filter((ge) => ge.geraetId).map((ge) => {
     const gg = store.geraetById(ge.geraetId);
-    const tar = ((gg && gg.tarif) || []).find((t) => t.preis > 0) || ((gg && gg.tarif) || [])[0] || { einheit: 'Tag', preis: 0 };
-    return { text: gg ? gg.name : ge.geraetId, einheit: ge.einheit || tar.einheit, menge: 1, preis: ge.preis != null ? ge.preis : tar.preis };
+    const tarife = (gg && gg.tarif) || [];
+    const wunsch = ge.einheit || '';
+    const istStd = /stunden/i.test(wunsch);
+    const tar = tarife.find((t) => t.einheit === wunsch)
+      || (istStd ? tarife.find((t) => /stunden/i.test(t.einheit)) : tarife.find((t) => /tag/i.test(t.einheit)))
+      || tarife.find((t) => t.preis > 0) || tarife[0] || { einheit: wunsch || 'Tag', preis: 0 };
+    const menge = /stunden/i.test(tar.einheit)
+      ? 1
+      : (Number(ge.dauer) || (ge.von && ge.bis ? window.tageZwischen(ge.von, ge.bis) : 1) || 1);
+    return { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: ge.preis != null ? ge.preis : tar.preis };
   });
 }
 
@@ -271,6 +279,8 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const [rueckOpen, setRueckOpen] = auS(false);
   const [verlOpen, setVerlOpen] = auS(false);
   const [geraetModal, setGeraetModal] = auS(null);  // null = zu; sonst { index: number|null } (null = neues Gerät)
+  // Direktstart aus Auslieferungs-Übersicht / Mietverträge-Liste: Mietvertrag gleich öffnen.
+  React.useEffect(() => { if (params && params.openMv) setMvOpen(true); }, [params.openMv]);
   const a = store.auftragById(params.id);
 
   if (!a) return <><PageHeader title="Auftrag" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
@@ -331,6 +341,11 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                   </button>
                 </div>
               )}
+            </div>
+          )}
+          {['reserviert', 'abgerechnet', 'bezahlt'].includes(a.status) && (
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              <window.UI.Btn variant="ghost" icon="clock" onClick={() => setVerlOpen(true)} style={{ width: '100%' }}>Auftrag verlängern</window.UI.Btn>
             </div>
           )}
           {a.status === 'bezahlt' && (
@@ -562,70 +577,95 @@ function VerlaengernModal({ auftrag, store, onClose }) {
   const c = store.db.company || {};
   const g = store.geraetById(auftrag.geraetId);
   const tel = (s) => s ? s.replace(/[^0-9]/g, '').replace(/^0/, '49') : '';
-  const dDays = (x, y) => Math.round((new Date(y + 'T00:00:00') - new Date(x + 'T00:00:00')) / 86400000);
+  // Primäres Gerät; nur tageweise gebuchte Aufträge sind hier verlängerbar.
+  const g0 = (auftrag.geraete && auftrag.geraete[0]) || { geraetId: auftrag.geraetId, von: auftrag.von, bis: auftrag.bis, einheit: auftrag.einheit, dauer: auftrag.dauer };
+  const istStdBlock = /stunden/i.test(g0.einheit || '');
+
+  // Nächste feste Belegung desselben Geräts nach dem aktuellen Ende → harte Obergrenze.
+  const nextStart = (() => {
+    const kand = [];
+    (store.db.auftraege || []).forEach((x) => {
+      if (x.id === auftrag.id || ['abgeschlossen', 'abgelehnt'].includes(x.status)) return;
+      const gs = (x.geraete && x.geraete.length) ? x.geraete : [x];
+      gs.forEach((ge) => { if (ge.geraetId === g0.geraetId && ge.von > auftrag.bis) kand.push({ von: ge.von, label: store.kundeById(x.kundeId)?.name || x.id }); });
+    });
+    (store.db.belegungen || []).forEach((b) => { if (b.geraetId === g0.geraetId && b.von > auftrag.bis) kand.push({ von: b.von, label: (F.BELEGUNG_GRUND[b.grund] && F.BELEGUNG_GRUND[b.grund].label) || 'Belegung' }); });
+    kand.sort((a, b) => a.von.localeCompare(b.von));
+    return kand[0] || null;
+  })();
+  const maxBis = nextStart ? window.addDays(nextStart.von, -1) : '';
+
   const [bis, setBis] = auS(auftrag.bis);
-  const [uncheck, setUncheck] = auS({});
   const [done, setDone] = auS(null);
-  const delta = dDays(auftrag.bis, bis);
-  const betroffen = store.db.auftraege.filter((x) => x.id !== auftrag.id && x.geraetId === auftrag.geraetId && !['abgeschlossen', 'abgelehnt'].includes(x.status) && x.von > auftrag.bis && x.von <= bis);
-  const isChecked = (id) => !uncheck[id];
-  const waLink = (kunde, msg) => `https://wa.me/${tel(kunde && (kunde.whatsapp || kunde.phone))}?text=${encodeURIComponent(msg)}`;
+
+  // Miettage (inkl.) zwischen zwei Daten – geschlossene Wochentage zählen nicht.
+  const miettage = (von, b) => { if (!von || !b || b < von) return 0; let cur = von, n = 0, guard = 0; while (cur <= b && guard < 400) { if (!window.istMiettag || window.istMiettag(cur)) n++; cur = window.addDays(cur, 1); guard++; } return n; };
+  const neuDauer = miettage(g0.von, bis);
+  const alteDauer = Number(g0.dauer) || miettage(g0.von, auftrag.bis) || 1;
+  const deltaTage = Math.max(0, neuDauer - alteDauer);
+  const tarif = ((g && g.tarif) || []).find((t) => /tag/i.test(t.einheit)) || { preis: 0 };
+  const zusatzBetrag = deltaTage * (tarif.preis || 0);
+  const zusatzPos = deltaTage > 0 ? [{ text: g ? g.name : g0.geraetId, einheit: 'Tag', menge: deltaTage, preis: tarif.preis || 0 }] : [];
+
+  const ueberMax = !!(maxBis && bis > maxBis);
+  const rechnung = auftrag.rechnungId ? store.db.rechnungen.find((r) => r.id === auftrag.rechnungId) : null;
+  const mvGesperrt = !!(auftrag.mietvertrag && auftrag.mietvertrag.gesperrt);
   const hauptKunde = auftrag.kundeId ? store.kundeById(auftrag.kundeId) : null;
+  const waLink = (kunde, msg) => `https://wa.me/${tel(kunde && (kunde.whatsapp || kunde.phone))}?text=${encodeURIComponent(msg)}`;
   const hauptMsg = `Hallo ${hauptKunde ? hauptKunde.name : ''},\n\nIhr Einsatz mit „${g ? g.name : 'dem Gerät'}" verlängert sich bis ${F.fmtDate(bis)}.\nBei Fragen melden Sie sich gern.\n\nViele Grüße\n${c.owner || ''}`;
+  const kannVerlaengern = !!bis && bis > auftrag.bis && !ueberMax && !istStdBlock && deltaTage > 0;
 
   const anwenden = () => {
-    store.updateAuftrag(auftrag.id, { bis });
-    const verschoben = [];
-    betroffen.forEach((x) => {
-      if (isChecked(x.id)) {
-        const nv = window.addDays(x.von, delta), nb = window.addDays(x.bis, delta);
-        store.updateAuftrag(x.id, { von: nv, bis: nb });
-        verschoben.push({ id: x.id, kunde: store.kundeById(x.kundeId), von: nv, bis: nb });
-      }
-    });
-    setDone({ verschoben });
-    toast(`Auftrag verlängert${verschoben.length ? ` · ${verschoben.length} Folgetermin(e) verschoben` : ''}`);
+    const info = store.verlaengern(auftrag.id, { neuBis: bis, neuDauer, zusatzPos, zusatzBetrag });
+    setDone(info || {});
+    const teile = [];
+    if (info && info.zusatzRechnung) teile.push(`Zusatzrechnung ${info.zusatzRechnung}`);
+    else if (info && info.rechnungAngepasst) teile.push('Rechnung angepasst');
+    if (mvGesperrt) teile.push('Mietvertrag-Nachtrag');
+    toast(`Auftrag verlängert${teile.length ? ' · ' + teile.join(' · ') : ''}`);
   };
+
+  const box = (bg, col, txt) => <div style={{ padding: '10px 12px', background: bg, borderRadius: 'var(--r)', fontSize: 12.5, color: col, display: 'flex', alignItems: 'flex-start', gap: 8 }}><Icon name="alert" size={15} color={col} style={{ flex: '0 0 auto', marginTop: 1 }} />{txt}</div>;
 
   return (
     <window.UI.Modal open title="Auftrag verlängern" onClose={onClose} width={480}
       footer={done
         ? <window.UI.Btn icon="check" onClick={onClose}>Fertig</window.UI.Btn>
-        : <><window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={anwenden} disabled={!bis || bis < auftrag.von}>Verlängern</window.UI.Btn></>}>
+        : <><window.UI.Btn variant="ghost" onClick={onClose}>Abbrechen</window.UI.Btn><window.UI.Btn icon="check" onClick={anwenden} disabled={!kannVerlaengern}>Verlängern</window.UI.Btn></>}>
       {!done ? (
         <div className="stack" style={{ gap: 14 }}>
-          <window.UI.Field label="Neues Enddatum"><window.UI.Input type="date" value={bis} onChange={(e) => setBis(e.target.value)} /></window.UI.Field>
-          {delta > 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Verlängerung um {delta} Tag(e).</div>}
-          {betroffen.length > 0 ? (
-            <div>
-              <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Folgetermine desselben Geräts – verschieben?</div>
-              <div className="stack" style={{ gap: 8 }}>
-                {betroffen.map((x) => {
-                  const ku = store.kundeById(x.kundeId);
-                  return (
-                    <label key={x.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 11px', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', cursor: 'pointer', fontSize: 13 }}>
-                      <input type="checkbox" checked={isChecked(x.id)} onChange={(e) => setUncheck({ ...uncheck, [x.id]: !e.target.checked })} style={{ marginTop: 3 }} />
-                      <span style={{ flex: 1 }}><b>{x.id}</b> · {ku ? ku.name : '—'}<br /><span style={{ color: 'var(--muted)' }}>{F.fmtDate(x.von)} → {F.fmtDate(window.addDays(x.von, delta))}</span></span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (delta > 0 && <div style={{ fontSize: 12.5, color: 'var(--ok)' }}>Keine Folgetermine betroffen.</div>)}
+          {istStdBlock ? (
+            box('var(--warn-wash)', 'var(--warn)', 'Dieser Auftrag ist stundenweise gebucht – eine tageweise Verlängerung ist hier nicht vorgesehen.')
+          ) : (
+            <>
+              <div style={{ fontSize: 13 }}>Aktuelles Ende: <b>{F.fmtDate(auftrag.bis)}</b></div>
+              <window.UI.Field label="Neues Enddatum">
+                <window.UI.Input type="date" value={bis} min={auftrag.bis} max={maxBis || undefined} onChange={(e) => setBis(e.target.value)} />
+              </window.UI.Field>
+              {nextStart
+                ? box('var(--warn-wash)', 'var(--warn)', <span>Gerät ab <b>{F.fmtDate(nextStart.von)}</b> fest verplant ({nextStart.label}). Verlängerung max. bis <b>{F.fmtDate(maxBis)}</b> – danach muss das Gerät zurück.</span>)
+                : <div style={{ fontSize: 12.5, color: 'var(--ok)' }}>Kein Folgetermin – frei verlängerbar.</div>}
+              {ueberMax && box('var(--danger-wash)', 'var(--danger)', <span>Gewähltes Datum liegt nach dem festen Folgetermin. Spätestens <b>{F.fmtDate(maxBis)}</b> muss das Gerät zurück.</span>)}
+              {deltaTage > 0 && !ueberMax && (
+                <div style={{ fontSize: 13, background: 'var(--paper-2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
+                  Verlängerung um <b>{deltaTage}</b> Miettag(e) · zusätzlich <b>{F.fmtEUR(zusatzBetrag)}</b>.
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    {rechnung && rechnung.status === 'bezahlt' ? 'Rechnung ist bezahlt → es wird eine Zusatzrechnung erstellt.' : rechnung ? 'Bestehende Rechnung wird angepasst.' : 'Wird in Mietvertrag/Rechnung übernommen.'}
+                    {mvGesperrt ? ' Mietvertrag gesperrt → Nachtrag wird angelegt.' : (auftrag.mietvertrag ? ' Mietvertrag wird angepasst.' : '')}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       ) : (
         <div className="stack" style={{ gap: 12 }}>
-          <div style={{ fontSize: 13.5 }}>Verlängert bis <b>{F.fmtDate(bis)}</b>. Kunden per WhatsApp informieren:</div>
+          <div style={{ fontSize: 13.5 }}>Verlängert bis <b>{F.fmtDate(bis)}</b>{done.zusatzRechnung ? ` · Zusatzrechnung ${done.zusatzRechnung}` : ''}. Kunden informieren:</div>
           {hauptKunde && (hauptKunde.whatsapp || hauptKunde.phone) && (
             <a href={waLink(hauptKunde, hauptMsg)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#25D366', color: '#fff', borderRadius: 'var(--r)', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
-              <Icon name="phone" size={18} color="#fff" /> {hauptKunde.name} (Verlängerung)
+              <Icon name="phone" size={18} color="#fff" /> {hauptKunde.name} per WhatsApp
             </a>
           )}
-          {done.verschoben.map((v) => (v.kunde && (v.kunde.whatsapp || v.kunde.phone)) ? (
-            <a key={v.id} href={waLink(v.kunde, `Hallo ${v.kunde.name},\n\nleider verschiebt sich Ihr geplanter Termin mit „${g ? g.name : 'dem Gerät'}" auf ${F.fmtDate(v.von)}${v.bis !== v.von ? ' – ' + F.fmtDate(v.bis) : ''}.\nWir bitten um Ihr Verständnis und um kurze Bestätigung.\n\nViele Grüße\n${c.owner || ''}`)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#25D366', color: '#fff', borderRadius: 'var(--r)', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
-              <Icon name="phone" size={18} color="#fff" /> {v.kunde.name} (verschoben auf {F.fmtDate(v.von)})
-            </a>
-          ) : null)}
         </div>
       )}
     </window.UI.Modal>
@@ -968,3 +1008,63 @@ function BelegKachel({ icon, title, status, onTitle, locked, children }) {
 const belegBtn = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '11px 13px', border: '1px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 const belegLeer = { display: 'flex', alignItems: 'center', gap: 9, padding: '11px 13px', borderRadius: 'var(--r)', background: 'var(--paper-3)', fontSize: 13.5, color: 'var(--muted-2)' };
 const auswahlBtn = { display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '15px 16px', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'var(--ink)' };
+
+// ---- Mietvertrag-Status am Auftrag ableiten (für Liste & Dashboard) ----
+window.mvStatus = function mvStatus(a) {
+  if (!a || !a.mietvertrag) return { label: 'Kein Vertrag', cls: 'draft' };
+  if (a.mietvertrag.gesperrt) return { label: 'Unterschrieben', cls: 'ok' };
+  if (a.mietvertrag.versendetAm) return { label: 'Versendet', cls: 'open' };
+  return { label: 'Entwurf', cls: 'warn' };
+};
+
+// ---- Mietverträge-Liste (Belege-Tab) ----
+window.Screens.mietvertraege = function Mietvertraege({ nav, params = {}, mobile, onMenu, PageHeader }) {
+  const store = window.useStore();
+  const F = window.FRIESEN;
+  const [q, setQ] = auS('');
+  const REL = ['reserviert', 'abgerechnet', 'bezahlt', 'abgeschlossen'];
+  let rows = (store.db.auftraege || []).filter((a) => a.mietvertrag || REL.includes(a.status));
+  if (q) { const ql = q.toLowerCase(); rows = rows.filter((a) => (a.id + ' ' + (store.kundeById(a.kundeId)?.name || '') + ' ' + (a.ort || '')).toLowerCase().includes(ql)); }
+  rows = [...rows].sort((a, b) => (b.von || '').localeCompare(a.von || ''));
+  const SC = window.STATUS_COLOR;
+  return (
+    <>
+      <PageHeader kicker="Belege" title="Mietverträge" mobile={mobile} onMenu={onMenu} />
+      <div className="content-pad stack" style={{ gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', background: 'var(--paper)', maxWidth: 320 }}>
+          <Icon name="search" size={16} color="var(--muted)" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nr., Kunde oder Ort …" style={{ border: 'none', outline: 'none', font: 'inherit', fontSize: 13.5, flex: 1, background: 'transparent' }} />
+        </div>
+        <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div>
+            {rows.map((a) => {
+              const k = store.kundeById(a.kundeId);
+              const g = store.geraetById(a.geraetId);
+              const st = window.mvStatus(a);
+              const c = (SC && SC[st.cls]) || SC.draft;
+              return (
+                <button key={a.id} onClick={() => nav('auftrag', { id: a.id, openMv: 1 })} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '14px 16px', border: 'none', borderBottom: '1px solid var(--paper-3)', background: 'transparent', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                  {g && <window.GeraetBadge geraet={g} size={36} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k?.name || '—'}</div>
+                        <div className="num" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{a.id} · {F.fmtDate(a.von)}{a.bis !== a.von ? '–' + F.fmtDate(a.bis) : ''}</div>
+                      </div>
+                      <span style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 2, background: c.bg, color: c.fg, fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 1, background: c.fg }} />{st.label}
+                      </span>
+                    </div>
+                    {a.ort && <div style={{ fontSize: 11.5, color: 'var(--muted-2)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="pin" size={12} /> {a.ort}</div>}
+                  </div>
+                  <Icon name="chevron" size={16} color="var(--muted-2)" style={{ flex: '0 0 auto' }} />
+                </button>
+              );
+            })}
+            {rows.length === 0 && <window.UI.Empty icon="file" title="Keine Mietverträge" sub="Sobald Aufträge reserviert sind, erscheinen sie hier zum Unterschreiben." />}
+          </div>
+        </window.UI.Card>
+      </div>
+    </>
+  );
+};
