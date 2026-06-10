@@ -148,6 +148,9 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
   const [previewRef, scale] = useFitScale(793);
 
   if (!r) return <><PageHeader title="Rechnung" mobile={mobile} onMenu={onMenu} /><div className="content-pad">Nicht gefunden.</div></>;
+  // Zugehörigen Auftrag auflösen (auch ohne auftragId am Beleg). Früher lag dieser Helfer
+  // nur in der Listen-Komponente → Aufruf hier löste einen ReferenceError aus („weiße Seite").
+  const auftragId = r.auftragId || store.auftragIdByBeleg('rechnung', r.id);
   const k = store.kundeById(r.kundeId);
   const c = store.db.company;
   const doc = <window.Print.RechnungDoc rechnung={r} kunde={k} company={c} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
@@ -175,7 +178,7 @@ window.Screens.rechnung = function RechnungDetail({ nav, params, mobile, onMenu,
             </div>
             <div className="stack" style={{ gap: 9, marginTop: 14 }}>
               <window.UI.Btn icon="download" onClick={() => window.PDF.download(doc, 'Rechnung_' + r.id)} style={{ width: '100%' }}>Drucken / als PDF</window.UI.Btn>
-              {auftragIdOfR(r) && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => nav('auftrag', { id: auftragIdOfR(r) })} style={{ width: '100%' }}>Auftrag öffnen</window.UI.Btn>}
+              {auftragId && <window.UI.Btn variant="ghost" icon="arrowRight" onClick={() => nav('auftrag', { id: auftragId })} style={{ width: '100%' }}>Auftrag öffnen</window.UI.Btn>}
             </div>
             <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--muted-2)', lineHeight: 1.5 }}>
               Bezahlt-Status, Mahnung und Mietvertrag verwaltest du im zugehörigen Auftrag.

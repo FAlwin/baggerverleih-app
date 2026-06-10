@@ -9,6 +9,13 @@ const ANF_STATUS = {
   abgelehnt:        { label: 'Abgelehnt',      cls: 'danger' },
 };
 
+// Wählbare Einheiten je Gerät = dessen Tarif-Einheiten (z. B. Bagger ['Tag'], Anhänger ['4 Stunden','8 Stunden','Tag']).
+const geraetEinheiten = (store, gid) => {
+  const t = ((store.geraetById(gid) || {}).tarif) || [];
+  const u = t.map((x) => x.einheit).filter((e) => /tag|stunden/i.test(e));
+  return u.length ? u : ['Tag'];
+};
+
 // ---- Verfügbarkeits-/Buchungskalender (3 Monate, klickbar) für Geräte-Auswahl ----
 const KAL_MON = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const KAL_WT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -76,18 +83,21 @@ function VerfuegbarkeitsKalender({ store, geraetId, selected, bis, onPick }) {
 // Pill-Farbschlüssel je Anfrage-Status (window.Pill liest FRIESEN.STATUS)
 const anfPillKey = (s) => ({ neu: 'offen', 'in-bearbeitung': 'ueberfaellig', erledigt: 'bezahlt', abgelehnt: 'abgelehnt' }[s] || 'offen');
 
-window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader }) {
+window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, PageHeader }) {
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
   const [filter, setFilter] = anfS('alle');
   const [detail, setDetail] = anfS(null);
   const [neuOpen, setNeuOpen] = anfS(false);
-  const LEER_ANF = { name: '', phone: '', email: '', ort: '', nachricht: '', geraete: [{ geraetId: 'bagger', von: '', vonZeit: '08:00', dauer: 1, einheit: 'Tage' }] };
+  const LEER_ANF = { name: '', phone: '', email: '', ort: '', nachricht: '', geraete: [{ geraetId: 'bagger', von: '', vonZeit: '08:00', dauer: 1, einheit: 'Tag' }] };
   const [neuForm, setNeuForm] = anfS(LEER_ANF);
   const [activeRow, setActiveRow] = anfS(0);
   const [ablehnAnf, setAblehnAnf] = anfS(null);
   const [ablehnGrund, setAblehnGrund] = anfS('');
+
+  // Direktstart aus „Neu" (Dashboard): Formular gleich öffnen.
+  React.useEffect(() => { if (params.neu) setNeuOpen(true); }, [params.neu]);
 
   const saveNeu = () => {
     // Alle Felder verpflichtend (wie im Kundenkontaktformular).
@@ -136,9 +146,9 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
       neuerKunde = { id: kid, name: anf.name, kontakt: '', street: '', city: anf.ort || '', phone: anf.phone || '', email: anf.email || '', typ: 'Privat' };
       kundeId = kid;
     }
-    const geraete = (anf.geraete && anf.geraete.length ? anf.geraete : [{ geraetId: anf.geraetId, von: anf.von, bis: anf.bis, vonZeit: anf.vonZeit, bisZeit: anf.bisZeit }])
+    const geraete = (anf.geraete && anf.geraete.length ? anf.geraete : [{ geraetId: anf.geraetId, von: anf.von, bis: anf.bis, vonZeit: anf.vonZeit, bisZeit: anf.bisZeit, einheit: anf.einheit, dauer: anf.dauer }])
       .filter((g) => g.geraetId)
-      .map((g) => ({ geraetId: g.geraetId, von: g.von || store.today, bis: g.bis || g.von || store.today, vonZeit: g.vonZeit || '08:00', bisZeit: g.bisZeit || '17:00' }));
+      .map((g) => ({ geraetId: g.geraetId, von: g.von || store.today, bis: g.bis || g.von || store.today, vonZeit: g.vonZeit || '08:00', bisZeit: g.bisZeit || '17:00', einheit: g.einheit || 'Tag', dauer: Number(g.dauer) || 1 }));
     store.annehmenAnfrage({
       anfrageId: anf.id, auftragId, kundeId: match ? match.id : undefined, neuerKunde,
       auftrag: { kundeId, geraete, ort: anf.ort || '', notiz: anf.nachricht || '' },
@@ -300,13 +310,13 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
                 <div key={i} onClick={() => setActiveRow(i)} style={{ border: '1px solid ' + (activeRow === i ? 'var(--yellow)' : 'var(--line)'), borderRadius: 'var(--r)', padding: 12, background: activeRow === i ? 'var(--paper-2)' : 'var(--paper)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <window.UI.Field label={'Gerät' + (neuForm.geraete.length > 1 ? ' ' + (i + 1) : '')} style={{ flex: 1 }}>
-                      <window.UI.Select value={g.geraetId} onChange={(e) => setRow({ geraetId: e.target.value })}>
+                      <window.UI.Select value={g.geraetId} onChange={(e) => { const gid = e.target.value; const eh = geraetEinheiten(store, gid); setRow({ geraetId: gid, einheit: eh[0], dauer: 1 }); }}>
                         {store.db.flotte.filter((x) => x.kat === 'Maschine' || x.kat === 'Transport').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </window.UI.Select>
                     </window.UI.Field>
                     {neuForm.geraete.length > 1 && <window.UI.Btn size="sm" variant="ghost" icon="trash" title="Gerät entfernen" onClick={() => { setNeuForm((f) => ({ ...f, geraete: f.geraete.filter((_, j) => j !== i) })); setActiveRow(0); }} style={{ marginBottom: 0 }} />}
                   </div>
-                  <window.UI.ZeitraumPicker F={F} von={g.von} vonZeit={g.vonZeit} menge={g.dauer} einheit={g.einheit} withTime={g.einheit === 'Stunden'}
+                  <window.UI.ZeitraumPicker F={F} von={g.von} vonZeit={g.vonZeit} menge={g.dauer} einheit={g.einheit} einheiten={geraetEinheiten(store, g.geraetId)}
                     onChange={(v) => setRow({ von: v.von, vonZeit: v.vonZeit, dauer: v.menge, einheit: v.einheit })} />
                   {ende && (konflikt
                     ? <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>✗ {F.fmtDate(konflikt.von)}–{F.fmtDate(konflikt.bis)} bereits belegt/reserviert</div>
@@ -314,7 +324,7 @@ window.Screens.anfragen = function Anfragen({ nav, mobile, onMenu, PageHeader })
                 </div>
               );
             })}
-            <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setNeuForm((f) => ({ ...f, geraete: [...f.geraete, { geraetId: 'bagger', von: '', vonZeit: '08:00', dauer: 1, einheit: 'Tage' }] })); setActiveRow(neuForm.geraete.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
+            <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setNeuForm((f) => ({ ...f, geraete: [...f.geraete, { geraetId: 'bagger', von: '', vonZeit: '08:00', dauer: 1, einheit: 'Tag' }] })); setActiveRow(neuForm.geraete.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
           </div>
           {(() => {
             const ar = neuForm.geraete[activeRow] || neuForm.geraete[0] || {};

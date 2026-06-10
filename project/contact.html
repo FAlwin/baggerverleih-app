@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Anfrage stellen — Friesen Bau- &amp; Mietservice</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
@@ -172,15 +172,12 @@ const geraete = loadGeraete();
 
 // ---- Gerätabhängige Mietdauer (Startdatum + Dauer + Einheit → Enddatum) ----
 function geraetById(id){ return geraete.find(g => g.id === id); }
-// Einheiten je nach Tarif des Geräts: bietet das Gerät Stunden-Tarife, gibt es 'Stunden'; sonst nur 'Tage'.
+// Wählbare Einheiten = die echten Tarif-Einheiten des Geräts (z. B. Bagger ['Tag'],
+// Anhänger ['4 Stunden','8 Stunden','Tag']). Keine kleinere/freie Auswahl.
 function verfuegbareEinheiten(g){
   const tar = (g && g.tarif) || [];
-  const hatStunden = tar.some(t => /stunde/i.test(t.einheit));
-  const hatTage = tar.some(t => /tag/i.test(t.einheit));
-  const out = [];
-  if (hatTage || !hatStunden) out.push('Tage');
-  if (hatStunden) out.push('Stunden');
-  return out.length ? out : ['Tage'];
+  const u = tar.map(t => t.einheit).filter(e => /tag|stunde/i.test(e));
+  return u.length ? u : ['Tag'];
 }
 function addDaysIso(iso, k){ const [y,m,d] = iso.split('-').map(Number); const dt = new Date(y, m-1, d+k); const p = x => String(x).padStart(2,'0'); return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate()); }
 // Enddatum berechnen – identisch zur App ('Anfrage erstellen'): geschlossene Wochentage zählen bei Tagen nicht mit.
@@ -190,9 +187,11 @@ function berechneEnde(von, vonZeit, menge, einheit){
   const db = calDB();
   const mw = db.settings && db.settings.mietWochentage;
   const istMiettag = (iso) => { if (!Array.isArray(mw)) return true; return mw[new Date(iso+'T00:00:00').getDay()] !== false; };
-  if (einheit === 'Stunden') {
+  const stdMatch = /^(\d+)\s*Stunden$/i.exec(String(einheit || ''));
+  if (einheit === 'Stunden' || stdMatch) {
+    const blockH = stdMatch ? Number(stdMatch[1]) : n;
     const [h, m] = (vonZeit || '08:00').split(':').map(Number);
-    const total = h*60 + m + n*60;
+    const total = h*60 + m + blockH*60;
     const extraDays = Math.floor(total/(24*60));
     const rest = ((total % (24*60)) + 24*60) % (24*60);
     const p = (x) => String(x).padStart(2,'0');
@@ -227,6 +226,8 @@ function renderRows(){
   rows.forEach((r, i) => {
     const opts = rowEinheiten(r.geraetId);
     if (opts.indexOf(r.einheit) < 0) r.einheit = opts[0];
+    const istStd = /stunden/i.test(r.einheit);   // Stunden-Block → feste Dauer 1
+    if (istStd) r.dauer = '1';
     const ende = (r.von && r.dauer) ? berechneEnde(r.von, r.vonZeit, r.dauer, r.einheit) : null;
     const konflikt = ende ? bereichKonflikt(r.geraetId, r.von, ende.bis) : null;
     const card = document.createElement('div');
@@ -237,19 +238,19 @@ function renderRows(){
     if (rows.length>1) h += '<button type="button" class="r-del" title="Entfernen" style="flex:0 0 auto;width:40px;height:40px;border:1px solid #E2E2DD;border-radius:8px;background:#fff;cursor:pointer;font-size:15px">✕</button>';
     h += '</div><div class="form-grid">';
     h += '<div class="field"><label>Start *</label><input class="r-von" type="date" value="'+(r.von||'')+'"/></div>';
-    h += '<div class="field" style="'+(r.einheit==='Stunden'?'':'display:none')+'"><label>Startuhrzeit</label><input class="r-vonzeit" type="time" value="'+(r.vonZeit||'08:00')+'"/></div>';
+    h += '<div class="field" style="'+(istStd?'':'display:none')+'"><label>Startuhrzeit</label><input class="r-vonzeit" type="time" value="'+(r.vonZeit||'08:00')+'"/></div>';
     h += '</div><div class="form-grid">';
-    h += '<div class="field"><label>Dauer *</label><input class="r-dauer" type="number" min="1" step="1" value="'+(r.dauer||'1')+'"/></div>';
+    h += '<div class="field" style="'+(istStd?'display:none':'')+'"><label>Dauer *</label><input class="r-dauer" type="number" min="1" step="1" value="'+(r.dauer||'1')+'"/></div>';
     h += '<div class="field"><label>Einheit *</label><select class="r-einheit">'+opts.map(o=>'<option value="'+o+'"'+(o===r.einheit?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
     h += '</div>';
     if (ende && konflikt) h += '<div style="font-size:13px;color:#C62828;font-weight:600">✗ Nicht verfügbar – am '+fmtDE(konflikt.tag)+' '+(konflikt.status==='belegt'?'belegt':'reserviert')+'. Bitte anderen Zeitraum.</div>';
-    else if (ende) h += '<div style="font-size:13px;color:#666">Ende: '+fmtDE(ende.bis)+(r.einheit==='Stunden'?' · '+ende.bisZeit+' Uhr':'')+'</div>';
+    else if (ende) h += '<div style="font-size:13px;color:#666">Ende: '+fmtDE(ende.bis)+(istStd?' · '+ende.bisZeit+' Uhr':'')+'</div>';
     card.innerHTML = h;
     card.querySelector('.r-geraet').addEventListener('change', (e)=>{ r.geraetId=e.target.value; const o=rowEinheiten(r.geraetId); if(o.indexOf(r.einheit)<0) r.einheit=o[0]; activeRow=i; renderRows(); renderCal(); });
     card.querySelector('.r-von').addEventListener('change', (e)=>{ r.von=e.target.value; activeRow=i; renderRows(); renderCal(); });
     const vz=card.querySelector('.r-vonzeit'); if(vz) vz.addEventListener('change',(e)=>{ r.vonZeit=e.target.value; renderRows(); renderCal(); });
     card.querySelector('.r-dauer').addEventListener('change',(e)=>{ r.dauer=e.target.value; activeRow=i; renderRows(); renderCal(); });
-    card.querySelector('.r-einheit').addEventListener('change',(e)=>{ r.einheit=e.target.value; renderRows(); renderCal(); });
+    card.querySelector('.r-einheit').addEventListener('change',(e)=>{ r.einheit=e.target.value; if(/stunden/i.test(r.einheit)) r.dauer='1'; renderRows(); renderCal(); });
     const del=card.querySelector('.r-del'); if(del) del.addEventListener('click',(e)=>{ e.stopPropagation(); rows.splice(i,1); if(activeRow>=rows.length) activeRow=rows.length-1; renderRows(); renderCal(); });
     wrap.appendChild(card);
   });
@@ -344,7 +345,7 @@ document.getElementById('anfrage').addEventListener('submit', function(e) {
       alert(gname + ': Der gewünschte Zeitraum enthält einen ' + (konflikt.status === 'belegt' ? 'belegten' : 'reservierten') + ' Tag (' + fmtDE(konflikt.tag) + '). Bitte anderen Zeitraum wählen.');
       return;
     }
-    geraeteOut.push({ geraetId: r.geraetId, von: r.von, vonZeit: r.einheit === 'Stunden' ? (r.vonZeit||'08:00') : '08:00', dauer: Number(r.dauer)||1, einheit: r.einheit||'Tage', bis: ende.bis, bisZeit: ende.bisZeit });
+    geraeteOut.push({ geraetId: r.geraetId, von: r.von, vonZeit: /stunden/i.test(r.einheit) ? (r.vonZeit||'08:00') : '08:00', dauer: Number(r.dauer)||1, einheit: r.einheit||'Tag', bis: ende.bis, bisZeit: ende.bisZeit });
   }
 
   // Save to shared localStorage (Mehrgeräte: geraete[] + gespiegelte Primärfelder fürs erste Gerät)
