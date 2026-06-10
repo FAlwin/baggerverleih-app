@@ -121,13 +121,14 @@ function busyForDay(store, gid, day) {
 }
 const overlapsBusy = (busy, a, b) => busy.some((iv) => a < iv.b - 1e-6 && b > iv.a + 1e-6);
 // Konfliktsichere Bereichslogik: liefert {start,end} oder null
-function computeRange(busy, start, end, gran) {
+function computeRange(busy, start, end, gran, minDur) {
+  const md = minDur || gran;
   const snap = (h) => Math.round(h / gran) * gran, cw = (h) => Math.max(WS, Math.min(WE, h));
   start = snap(cw(start)); end = snap(cw(end));
   busy.forEach((iv) => { if (start >= iv.a - 1e-6 && start < iv.b - 1e-6) start = iv.b; });
   start = snap(cw(start));
   if (start >= WE - 1e-6) return null;
-  let e = Math.max(end, start + gran);
+  let e = Math.max(end, start + md);
   busy.forEach((iv) => { if (iv.a >= start - 1e-6 && iv.a < e) e = iv.a; });
   e = snap(cw(e));
   if (e - start < gran - 1e-6 || overlapsBusy(busy, start, e)) return null;
@@ -135,14 +136,15 @@ function computeRange(busy, start, end, gran) {
 }
 
 // ---- Stunden-Zeitachse (zieh- & tappbar, konfliktsicher) ----
-function StundenAchse({ busy, sel, gran, onChange }) {
+function StundenAchse({ busy, sel, gran, onChange, minDur }) {
   const ref = React.useRef(null);
   const drag = React.useRef(null);
+  const md = minDur || gran;
   const snap = (h) => Math.round(h / gran) * gran;
   const clampW = (h) => Math.max(WS, Math.min(WE, h));
-  const setRange = (start, end) => onChange(computeRange(busy, start, end, gran));
+  const setRange = (start, end) => onChange(computeRange(busy, start, end, gran, md));
   const xToH = (clientX) => { const r = ref.current.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (clientX - r.left) / r.width)); return WS + p * SPAN; };
-  const onDown = (e) => { e.preventDefault(); const h = xToH(e.clientX); setRange(h, h + 2); };
+  const onDown = (e) => { e.preventDefault(); const h = xToH(e.clientX); setRange(h, h + md); };
   const startDrag = (which) => (e) => {
     e.preventDefault(); e.stopPropagation();
     try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
@@ -151,8 +153,8 @@ function StundenAchse({ busy, sel, gran, onChange }) {
   const onMove = (e) => {
     if (!drag.current || !sel) return;
     const h = snap(clampW(xToH(e.clientX)));
-    if (drag.current === 'l') setRange(Math.min(h, sel.end - gran), sel.end);
-    else setRange(sel.start, Math.max(h, sel.start + gran));
+    if (drag.current === 'l') setRange(Math.min(h, sel.end - md), sel.end);
+    else setRange(sel.start, Math.max(h, sel.start + md));
   };
   const onUp = (e) => { if (drag.current) { try { e.target.releasePointerCapture(e.pointerId); } catch (_) {} drag.current = null; } };
   const seg = (a, b, kind, key) => (
@@ -209,12 +211,26 @@ function tageInkl(von, bis) {
   while (c <= bis && guard < 400) { if (window.istMiettag(c)) n++; c = window.addDays(c, 1); guard++; }
   return n || 1;
 }
-// Ist der Tagesbereich a..b durchgehend wählbar (frei/reserviert, kein belegt/geschlossen)?
+// Ist der Tagesbereich a..b durchgehend buchbar? Sperrtage (Wochenende „geschlossen") dürfen
+// übersprungen werden – nur echte Belegungen/Vergangenheit blockieren eine lange Miete.
 function rangeFrei(store, gid, a, b) {
   if (b < a) { const t = a; a = b; b = t; }
   let c = a, guard = 0;
-  while (c <= b && guard < 400) { const st = dayStatus(store, gid, c); if (st === 'belegt' || st === 'geschlossen' || st === 'past') return false; c = window.addDays(c, 1); guard++; }
+  while (c <= b && guard < 400) { const st = dayStatus(store, gid, c); if (st === 'belegt' || st === 'past') return false; c = window.addDays(c, 1); guard++; }
   return true;
+}
+// Einsatzort gegen Nominatim prüfen (nutzt + füllt den Geocode-Cache). true = gefunden / nicht prüfbar.
+async function geocodeOrt(ort) {
+  ort = (ort || '').trim();
+  if (!ort) return false;
+  try {
+    const cache = JSON.parse(localStorage.getItem('friesen_geocache') || '{}');
+    if (cache[ort]) return true;
+    const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(ort + ', Deutschland'));
+    const j = await res.json();
+    if (j && j[0]) { cache[ort] = { lat: +j[0].lat, lng: +j[0].lon }; try { localStorage.setItem('friesen_geocache', JSON.stringify(cache)); } catch (e) {} return true; }
+    return false;
+  } catch (e) { return true; } // Netzfehler → nicht blockieren
 }
 // Geräte-Grundbetrag (ohne Zusatzleistungen) + Kontext
 function geraetBetrag(g, row) {
@@ -233,7 +249,7 @@ function blockBetrag(store, row) {
 }
 
 // ---- Ein Geräte-Block: Picker + Kalender + Zeit-/Tageswahl + Zusatzleistungen ----
-function GeraetBlock({ store, F, row, idx, total, onChange, onRemove }) {
+function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded = true, onExpand }) {
   const g = store.geraetById(row.geraetId) || {};
   const hour = isHourMode(g);
   const tage = tageInkl(row.von, row.bis);
@@ -254,7 +270,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove }) {
   };
   const setTage = (n) => {
     let c = row.von, cnt = 1, guard = 0;
-    while (cnt < n && guard < 90) { let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; } if (['belegt', 'geschlossen', 'past'].indexOf(dayStatus(store, row.geraetId, nx)) >= 0) break; c = nx; cnt++; guard++; }
+    while (cnt < n && guard < 400) { let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; } if (['belegt', 'past'].indexOf(dayStatus(store, row.geraetId, nx)) >= 0) break; c = nx; cnt++; guard++; }
     onChange({ bis: c });
   };
 
@@ -327,6 +343,27 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove }) {
     <button type="button" onClick={onClick} style={{ padding: '6px 11px', borderRadius: 999, fontSize: 12.5, fontFamily: 'inherit', cursor: 'pointer', border: '1px solid ' + (on ? 'var(--ink)' : 'var(--line-2)'), background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{label}</button>
   );
 
+  // Zusammenfassung des gewählten Zeitraums (für die eingeklappte Kachel)
+  const zeitText = hour
+    ? (row.von && row.sel ? F.fmtDate(row.von) + ' · ' + decToH(row.sel.start) + '–' + decToH(row.sel.end) : 'Zeit noch wählen')
+    : (row.von ? F.fmtDate(row.von) + (row.bis && row.bis !== row.von ? ' → ' + F.fmtDate(row.bis) : '') + ' · ' + tage + ' Tag' + (tage !== 1 ? 'e' : '') : 'Zeitraum noch wählen');
+
+  // ---- Eingeklappte Kachel ----
+  if (!expanded) {
+    return (
+      <div onClick={onExpand} style={{ display: 'flex', alignItems: 'center', gap: 11, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '11px 13px', background: 'var(--paper)', cursor: 'pointer' }}>
+        <window.GeraetBadge geraet={g} size={34} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name || 'Gerät'}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{zeitText}</div>
+        </div>
+        <span className="num" style={{ flex: '0 0 auto', fontSize: 14, fontWeight: 700 }}>{F.fmtEUR(sub)}</span>
+        <window.UI.IconBtn name="edit" size={14} title="Bearbeiten" onClick={(e) => { e.stopPropagation(); onExpand && onExpand(); }} style={{ width: 30, height: 30, flex: '0 0 auto' }} />
+        {total > 1 && <window.UI.IconBtn name="trash" size={14} title="Gerät entfernen" onClick={(e) => { e.stopPropagation(); onRemove(); }} style={{ width: 30, height: 30, flex: '0 0 auto' }} />}
+      </div>
+    );
+  }
+
   return (
     <div style={{ border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 14, background: 'var(--paper)' }}>
       {total > 1 && (
@@ -375,8 +412,13 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove }) {
                 <div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{F.fmtDate(row.von)}{row.bis && row.bis !== row.von ? ' → ' + F.fmtDate(row.bis) : ''}</div>
                 <span className="num" style={{ fontSize: 12, fontWeight: 700, background: 'var(--yellow)', borderRadius: 20, padding: '2px 10px' }}>{tage} Tag{tage !== 1 ? 'e' : ''}</span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
-                {[1, 2, 3, 5].map((n) => chip(n + ' Tag' + (n > 1 ? 'e' : ''), () => setTage(n), tage === n))}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10, alignItems: 'center' }}>
+                {[1, 2, 3, 5, 7].map((n) => chip(n + ' Tag' + (n > 1 ? 'e' : ''), () => setTage(n), tage === n))}
+                <span style={{ fontSize: 12, color: 'var(--muted-2)', marginLeft: 2 }}>oder</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <window.UI.Input type="number" min="1" value={tage} onChange={(e) => setTage(Math.max(1, parseInt(e.target.value, 10) || 1))} style={{ width: 64, fontSize: 13, textAlign: 'right', padding: '6px 8px' }} />
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Tage</span>
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px dashed var(--line-2)', marginTop: 12, paddingTop: 10 }}>
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><b>{tage} Tag{tage !== 1 ? 'e' : ''}</b> × {F.fmtEUR(tagSatz(g))}/Tag</span>
@@ -407,7 +449,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove }) {
                 <div className="num" style={{ fontSize: 22, fontWeight: 700 }}>{row.sel ? decToH(row.sel.start) + ' → ' + decToH(row.sel.end) : <span style={{ fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>Zeitfenster auf der Achse wählen ↓</span>}</div>
                 {row.sel && <span className="num" style={{ fontSize: 12, fontWeight: 700, background: 'var(--yellow)', borderRadius: 20, padding: '2px 10px' }}>{(row.sel.end - row.sel.start)} Std</span>}
               </div>
-              <StundenAchse busy={busy} sel={row.sel} gran={row.gran || 1} onChange={(s) => onChange({ sel: s })} />
+              <StundenAchse busy={busy} sel={row.sel} gran={row.gran || 1} minDur={geraetModell(g) === 'staffel' ? ((staffelTiers(g)[0] && staffelTiers(g)[0].h) || (row.gran || 1)) : (row.gran || 1)} onChange={(s) => onChange({ sel: s })} />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 12 }}>
                 {geraetModell(g) === 'staffel'
                   ? staffelTiers(g).map((t) => chip(t.label + ' · ' + F.fmtEUR(t.preis), () => onChange({ sel: computeRange(busy, WS, WS + t.h, row.gran || 1) }), gb.tier && gb.tier.label === t.label))
@@ -450,6 +492,7 @@ const LEER_ROW = () => ({ geraetId: 'bagger', von: '', bis: '', vonZeit: '07:00'
 function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
   const [form, setForm] = anfS({ name: '', phone: '', email: '', ort: '', nachricht: '' });
   const [rows, setRows] = anfS([LEER_ROW()]);
+  const [activeIdx, setActiveIdx] = anfS(0);
   const toast = window.UI.useToast();
   const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
   const total = rows.reduce((a, r) => a + blockBetrag(store, r), 0);
@@ -457,9 +500,12 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
   const rowOk = (r) => { const g = store.geraetById(r.geraetId); if (!g) return false; return isHourMode(g) ? !!r.sel && !!r.von : (!!r.von && !!r.bis); };
   const valid = form.name.trim() && form.phone.trim() && form.email.trim() && form.ort.trim() && form.nachricht.trim() && rows.length && rows.every(rowOk);
 
-  const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([LEER_ROW()]); };
-  const save = () => {
+  const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([LEER_ROW()]); setActiveIdx(0); };
+  const save = async () => {
     if (!valid) { alert('Bitte alle Pflichtfelder und für jedes Gerät eine gültige Zeitauswahl angeben.'); return; }
+    // Einsatzort als echte Adresse prüfen
+    const ortOk = await geocodeOrt(form.ort.trim());
+    if (!ortOk && !window.confirm('Die Adresse „' + form.ort.trim() + '" konnte nicht gefunden werden.\nTrotzdem speichern?')) return;
     const geraete = [];
     for (const r of rows) {
       const g = store.geraetById(r.geraetId), hour = isHourMode(g), tage = tageInkl(r.von, r.bis);
@@ -494,8 +540,8 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved }) {
         </div>
         <window.UI.Field label="E-Mail *"><window.UI.Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@beispiel.de" /></window.UI.Field>
 
-        {rows.map((r, i) => <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} onChange={(p) => setRow(i, p)} onRemove={() => setRows((rs) => rs.filter((_, j) => j !== i))} />)}
-        <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => setRows((rs) => [...rs, LEER_ROW()])} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
+        {rows.map((r, i) => <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} expanded={i === activeIdx} onExpand={() => setActiveIdx(i)} onChange={(p) => setRow(i, p)} onRemove={() => { setRows((rs) => rs.filter((_, j) => j !== i)); setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(i, rows.length - 2) : a)); }} />)}
+        <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setRows((rs) => [...rs, LEER_ROW()]); setActiveIdx(rows.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
 
         <window.UI.Field label="Einsatzort (Adresse) *"><window.UI.Input value={form.ort} onChange={(e) => setForm({ ...form, ort: e.target.value })} placeholder="z. B. Musterstraße 5, 53797 Lohmar" /></window.UI.Field>
         <window.UI.Field label="Nachricht / Notiz *"><window.UI.Textarea value={form.nachricht} onChange={(e) => setForm({ ...form, nachricht: e.target.value })} placeholder="Was ist geplant?" rows={3} /></window.UI.Field>
