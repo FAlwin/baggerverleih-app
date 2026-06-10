@@ -9,10 +9,21 @@ function auZeitraum(F, a) {
   return d + z;
 }
 
-// Positionen aus der Geräte-Liste eines Auftrags ableiten (jedes Gerät → eine Position, Preis aus Tarif).
+// Eine Zusatzleistung (aus der Anfrage durchgereicht) in eine Rechnungs-/Angebotsposition wandeln.
+function zusatzPosition(z, store) {
+  if (z.art === 'stunde') return { text: z.label || 'Mit Fahrer', einheit: 'Stunde', menge: Number(z.stunden != null ? z.stunden : 1) || 1, preis: z.preis || 0 };
+  if (z.art === 'auswahl') {
+    const namen = (z.ids || []).map((id) => (store.geraetById(id) || {}).name).filter(Boolean).join(', ');
+    return { text: (z.label || 'Zubehör') + (namen ? ' (' + namen + ')' : ''), einheit: 'Pauschale', menge: 1, preis: z.betrag || 0 };
+  }
+  // stueckTag / anfahrt / pauschale: vorberechneten Betrag als Pauschalzeile (Summe bleibt korrekt)
+  return { text: z.label || 'Zusatzleistung', einheit: 'Pauschale', menge: 1, preis: z.betrag || 0 };
+}
+
+// Positionen aus der Geräte-Liste eines Auftrags ableiten: je Gerät eine Geräteposition + dessen Zusatzleistungen.
 function positionenAusGeraete(a, store) {
   const liste = (a.geraete && a.geraete.length) ? a.geraete : [{ geraetId: a.geraetId, einheit: a.einheit, dauer: a.dauer, von: a.von, bis: a.bis }];
-  return liste.filter((ge) => ge.geraetId).map((ge) => {
+  return liste.filter((ge) => ge.geraetId).flatMap((ge) => {
     const gg = store.geraetById(ge.geraetId);
     const tarife = (gg && gg.tarif) || [];
     const wunsch = ge.einheit || '';
@@ -23,7 +34,9 @@ function positionenAusGeraete(a, store) {
     const menge = /stunden/i.test(tar.einheit)
       ? 1
       : (Number(ge.dauer) || (ge.von && ge.bis ? window.tageZwischen(ge.von, ge.bis) : 1) || 1);
-    return { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: ge.preis != null ? ge.preis : tar.preis };
+    const geraetPos = { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: tar.preis };
+    const zusatzPos = (Array.isArray(ge.zusatz) ? ge.zusatz : []).filter((z) => (z.preis || z.betrag)).map((z) => zusatzPosition(z, store));
+    return [geraetPos, ...zusatzPos];
   });
 }
 

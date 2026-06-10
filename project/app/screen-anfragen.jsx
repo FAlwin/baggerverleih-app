@@ -653,7 +653,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
     }
     const geraete = (anf.geraete && anf.geraete.length ? anf.geraete : [{ geraetId: anf.geraetId, von: anf.von, bis: anf.bis, vonZeit: anf.vonZeit, bisZeit: anf.bisZeit, einheit: anf.einheit, dauer: anf.dauer }])
       .filter((g) => g.geraetId)
-      .map((g) => ({ geraetId: g.geraetId, von: g.von || store.today, bis: g.bis || g.von || store.today, vonZeit: g.vonZeit || '08:00', bisZeit: g.bisZeit || '17:00', einheit: g.einheit || 'Tag', dauer: Number(g.dauer) || 1 }));
+      .map((g) => ({ geraetId: g.geraetId, von: g.von || store.today, bis: g.bis || g.von || store.today, vonZeit: g.vonZeit || '08:00', bisZeit: g.bisZeit || '17:00', einheit: g.einheit || 'Tag', dauer: Number(g.dauer) || 1, zusatz: Array.isArray(g.zusatz) ? g.zusatz : [] }));
     store.annehmenAnfrage({
       anfrageId: anf.id, auftragId, kundeId: match ? match.id : undefined, neuerKunde,
       auftrag: { kundeId, geraete, ort: anf.ort || '', notiz: anf.nachricht || '' },
