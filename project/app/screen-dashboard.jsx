@@ -22,6 +22,21 @@ function GeraeteStandort({ store, nav }) {
   const mapRef = React.useRef(null);
   const mapObj = React.useRef(null);
   const markers = React.useRef([]);
+  const ptsRef = React.useRef([]);
+  const [full, setFull] = React.useState(false);
+  // Beim Wechsel Karte ↔ Vollbild Leaflet-Größe neu berechnen + neu einpassen (gleiche Karteninstanz)
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (!mapObj.current) return;
+        mapObj.current.invalidateSize(true);
+        if (ptsRef.current && ptsRef.current.length) mapObj.current.fitBounds(ptsRef.current, { padding: [40, 40], maxZoom: 12 });
+        else { const c = mapObj.current.getCenter(); mapObj.current.setView(c, mapObj.current.getZoom(), { animate: false }); }
+      } catch (e) {}
+    }, 180);
+    return () => clearTimeout(t);
+  }, [full]);
+  React.useEffect(() => { if (!full) return; const onKey = (e) => { if (e.key === 'Escape') setFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [full]);
   const cacheGet = () => { try { return JSON.parse(localStorage.getItem('friesen_geocache') || '{}'); } catch (e) { return {}; } };
   const cacheSet = (c) => { try { localStorage.setItem('friesen_geocache', JSON.stringify(c)); } catch (e) {} };
 
@@ -73,6 +88,7 @@ function GeraeteStandort({ store, nav }) {
           pts.push([coord.lat, coord.lng]);
         }
       }
+      ptsRef.current = pts;
       if (!abort && pts.length && mapObj.current) { try { mapObj.current.fitBounds(pts, { padding: [30, 30], maxZoom: 12 }); } catch (e) {} }
     })();
     return () => { abort = true; };
@@ -82,8 +98,23 @@ function GeraeteStandort({ store, nav }) {
     <window.UI.Card style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '15px 18px', borderBottom: '1.5px solid var(--line)' }}>
         <Icon name="pin" size={18} /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Wo ist welches Gerät?</h2>
+        <button onClick={() => setFull(true)} title="Karte im Vollbild" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '5px 10px', cursor: 'pointer' }}>
+          <Icon name="width" size={14} /> Vollbild
+        </button>
       </div>
-      <div ref={mapRef} style={{ height: 240, width: '100%', background: 'var(--paper-3)' }} />
+      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative' }}>
+        <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
+        {full && (
+          <>
+            <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 401, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--paper)', borderRadius: 'var(--r)', boxShadow: 'var(--shadow)', padding: '8px 12px' }}>
+              <Icon name="pin" size={16} /><span style={{ fontWeight: 700, fontSize: 14 }}>Wo ist welches Gerät?</span>
+            </div>
+            <button onClick={() => setFull(false)} title="Schließen" style={{ position: 'absolute', top: 14, right: 14, zIndex: 401, display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', background: 'var(--paper)', border: '1.5px solid var(--line-2)', borderRadius: 'var(--r)', padding: '9px 13px', cursor: 'pointer', boxShadow: 'var(--shadow)' }}>
+              <Icon name="x" size={16} /> Schließen
+            </button>
+          </>
+        )}
+      </div>
       <div>
         {rows.map((r) => {
           const k = r.a ? store.kundeById(r.a.kundeId) : null;
@@ -226,7 +257,7 @@ window.Screens.dashboard = function Dashboard({ nav, mobile, onMenu, PageHeader 
       </div>
       {(() => {
         const WIDGETS = {
-          standort: { title: 'Wo ist welches Gerät?', icon: 'pin', span: true, empty: false,
+          standort: { title: 'Wo ist welches Gerät?', icon: 'pin', span: false, empty: false,
             node: <GeraeteStandort store={store} nav={nav} /> },
           auslieferungen: { title: 'Auslieferungen · diese Woche', icon: 'file', empty: auslieferungen.length === 0,
             node: (
