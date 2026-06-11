@@ -461,8 +461,8 @@ function KategorienModal({ store, onClose }) {
         {list.map((k, i) => (
           <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <window.UI.IconBtn name="chevronD" size={13} title="nach oben" disabled={i === 0} onClick={() => move(i, -1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent', transform: 'rotate(180deg)' }} />
-              <window.UI.IconBtn name="chevronD" size={13} title="nach unten" disabled={i === list.length - 1} onClick={() => move(i, 1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent' }} />
+              <window.UI.IconBtn name="arrowUp" size={14} title="nach oben" disabled={i === 0} onClick={() => move(i, -1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent' }} />
+              <window.UI.IconBtn name="arrowDown" size={14} title="nach unten" disabled={i === list.length - 1} onClick={() => move(i, 1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent' }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{k}</div>

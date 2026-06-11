@@ -257,7 +257,7 @@ function blockBetrag(store, row) {
 // ---- Ein Geräte-Block: Picker + Kalender + Zeit-/Tageswahl + Zusatzleistungen ----
 // Bearbeitungsmodell: eingeklappt zeigt die übernommenen Werte (row). Beim Aufklappen wird ein lokaler
 // DRAFT bearbeitet; erst „Übernehmen" (✓) schreibt ihn via onCommit zurück, „Abbrechen" (✗) verwirft ihn (onCancel).
-function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, onMoveUp, onMoveDown, canReorder, expanded = false, onExpand }) {
+function GeraetBlock({ store, F, row, idx, total, usedIds, onCommit, onCancel, onRemove, onMoveUp, onMoveDown, canReorder, expanded = false, onExpand }) {
   const [draft, setDraft] = anfS(row);
   React.useEffect(() => { if (expanded) setDraft(row); }, [expanded]);   // beim Aufklappen frisch vom übernommenen Stand
   const r = expanded ? draft : row;                                      // angezeigte Werte
@@ -399,8 +399,8 @@ function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, 
       <div onClick={onExpand} style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '11px 13px', background: 'var(--paper)', cursor: 'pointer' }}>
         {canReorder && total > 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, flex: '0 0 auto' }}>
-            <window.UI.IconBtn name="chevronD" size={13} title="nach oben" disabled={idx === 0} onClick={(e) => { e.stopPropagation(); onMoveUp && onMoveUp(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent', transform: 'rotate(180deg)' }} />
-            <window.UI.IconBtn name="chevronD" size={13} title="nach unten" disabled={idx === total - 1} onClick={(e) => { e.stopPropagation(); onMoveDown && onMoveDown(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent' }} />
+            <window.UI.IconBtn name="arrowUp" size={14} title="nach oben" disabled={idx === 0} onClick={(e) => { e.stopPropagation(); onMoveUp && onMoveUp(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent' }} />
+            <window.UI.IconBtn name="arrowDown" size={14} title="nach unten" disabled={idx === total - 1} onClick={(e) => { e.stopPropagation(); onMoveDown && onMoveDown(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent' }} />
           </div>
         )}
         <window.GeraetBadge geraet={g} size={34} />
@@ -428,7 +428,7 @@ function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, 
           const kats = order.filter((k) => byKat[k]).concat(Object.keys(byKat).filter((k) => order.indexOf(k) < 0));
           return kats.map((k) => (
             <optgroup key={k} label={k}>
-              {byKat[k].map((gg) => { const [pv, pe] = preisVorschau(gg); return <option key={gg.id} value={gg.id}>{gg.name} · {pv} {pe}</option>; })}
+              {byKat[k].map((gg) => { const [pv, pe] = preisVorschau(gg); const taken = (usedIds || []).indexOf(gg.id) >= 0 && gg.id !== r.geraetId; return <option key={gg.id} value={gg.id} disabled={taken}>{gg.name} · {taken ? 'bereits hinzugefügt' : pv + ' ' + pe}</option>; })}
             </optgroup>
           ));
         })()}
@@ -674,10 +674,11 @@ window.GeraeteErfassung = function GeraeteErfassung({ store, F, rows, setRows })
   const remove = (i) => { setRows((rs) => rs.filter((_, j) => j !== i)); if (newIdx.current === i) newIdx.current = -1; setActiveIdx((a) => a === i ? -1 : (a > i ? a - 1 : a)); };
   const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= rows.length) return; setRows((rs) => { const c = rs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); };
   const add = () => { const ni = rows.length; setRows((rs) => [...rs, { ...LEER_ROW(), geraetId: '' }]); newIdx.current = ni; setActiveIdx(ni); };
+  const usedIds = rows.map((r) => r.geraetId).filter(Boolean);
   return (
     <div className="stack" style={{ gap: 10 }}>
       {rows.map((r, i) => (
-        <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length}
+        <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} usedIds={usedIds}
           expanded={i === activeIdx}
           onExpand={() => setActiveIdx(i)}
           onCommit={(d) => commit(i, d)}

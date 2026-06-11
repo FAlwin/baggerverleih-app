@@ -240,8 +240,8 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
                     <window.UI.Input value={p.einheit} onChange={(e) => updExtra(i, { einheit: e.target.value })} title="Einheit" style={{ padding: '7px 6px', fontSize: 12.5 }} />
                     <window.UI.Input type="number" value={p.preis} onChange={(e) => updExtra(i, { preis: e.target.value })} title="Einzelpreis €" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'right' }} />
                     <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                      <window.UI.IconBtn name="chevronD" size={13} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 26, height: 30, border: 'none', background: 'transparent', transform: 'rotate(180deg)' }} />
-                      <window.UI.IconBtn name="chevronD" size={13} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
+                      <window.UI.IconBtn name="arrowUp" size={14} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
+                      <window.UI.IconBtn name="arrowDown" size={14} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
                       <window.UI.IconBtn name="trash" size={14} onClick={() => removeExtra(i)} title="Entfernen" style={{ width: 26, height: 30 }} />
                     </div>
                   </div>
