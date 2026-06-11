@@ -231,14 +231,14 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort, positionen: positionenAusGeraete(a, store) };
   // Rechnung schreiben: aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag
   const rechnungSchreiben = () => {
-    if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); }
+    if (angebot) { const snap = store.snapshot(); const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt', { undo: () => store.restoreSnapshot(snap) }); nav('rechnung', { id: rid }); }
     else { const mv = a.mietvertrag; nav('rechnung-neu', { auftragId: id, kundeId: a.kundeId, prefill: (mv && mv.positionen) ? { ...prefill, positionen: mv.positionen, von: mv.von || a.von, bis: mv.bis || a.bis } : prefill }); }
   };
 
   if (a.status === 'anfrage') return {
     primary: { label: 'Angebot schreiben', icon: 'angebot', hint: 'Erstellt ein Angebot zu diesem Auftrag.',
       action: () => nav('rechnung-neu', { mode: 'angebot', auftragId: id, kundeId: a.kundeId, prefill }) },
-    secondary: { label: 'Stattdessen direkt buchen', action: () => { store.setAuftragStatus(id, 'reserviert'); toast('Auftrag gebucht'); } },
+    secondary: { label: 'Stattdessen direkt buchen', action: () => { const snap = store.snapshot(); store.setAuftragStatus(id, 'reserviert'); toast('Auftrag gebucht', { undo: () => store.restoreSnapshot(snap) }); } },
   };
 
   if (a.status === 'angebot') {
@@ -246,14 +246,14 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
     if (st === 'angenommen') return { primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Erstellt die Rechnung und setzt den Auftrag auf „abgerechnet".', action: rechnungSchreiben } };
     if (st === 'versendet') return {
       primary: { label: 'Kunde hat angenommen', icon: 'check', hint: 'Bucht den Auftrag fest (reserviert). Rechnung folgt später.',
-        action: () => { store.angebotAnnehmen(id); toast('Auftrag gebucht'); } },
+        action: () => { const snap = store.snapshot(); store.angebotAnnehmen(id); toast('Auftrag gebucht', { undo: () => store.restoreSnapshot(snap) }); } },
       secondary: { label: 'Angebot abgelehnt', danger: true, action: () => { if (confirm(`Angebot abgelehnt – Auftrag ${id} samt Angebot löschen?`)) { const snap = store.snapshot(); store.deleteAuftrag(id); toast('Auftrag gelöscht', { undo: () => store.restoreSnapshot(snap) }); nav('auftraege'); } } },
     };
     // Angebot erstellt, aber noch nicht versendet
     return {
       primary: { label: 'Angebot versenden', icon: 'arrowRight', hint: 'Öffnet den Versand per E-Mail oder WhatsApp.',
         action: () => a.angebotId && ui.openVersend ? ui.openVersend() : nav('rechnung-neu', { mode: 'angebot', auftragId: id, kundeId: a.kundeId, prefill }) },
-      secondary: { label: 'Kunde hat schon angenommen', action: () => { store.angebotAnnehmen(id); toast('Auftrag gebucht'); } },
+      secondary: { label: 'Kunde hat schon angenommen', action: () => { const snap = store.snapshot(); store.angebotAnnehmen(id); toast('Auftrag gebucht', { undo: () => store.restoreSnapshot(snap) }); } },
     };
   }
 
@@ -265,7 +265,7 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
         hint: mvSigned ? 'Mietvertrag ist beidseitig unterschrieben – Übergabe kann erfolgen.' : 'Bei der Übergabe sollte der Mietvertrag unterschrieben werden (Abschnitt „Mietvertrag").',
         action: () => {
           if (!mvSigned && !window.confirm('Der Mietvertrag ist noch nicht beidseitig unterschrieben.\n\nGerät trotzdem als übergeben („Im Einsatz") markieren?\n\nTipp: Den Mietvertrag im Auftrag erstellen und unterschreiben lassen.')) return;
-          store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert');
+          const snap = store.snapshot(); store.setAuftragStatus(id, 'einsatz'); toast('Gerät als „Im Einsatz" markiert', { undo: () => store.restoreSnapshot(snap) });
         } },
       secondary: { label: 'Direkt zur Rückgabe', action: () => ui.openRueckgabe && ui.openRueckgabe() },
     };
@@ -279,11 +279,11 @@ function nextStep(a, angebot, rechnung, store, nav, toast, ui) {
   if (a.status === 'abgeschlossen') {
     if (!rechnung) return { primary: { label: 'Rechnung schreiben', icon: 'rechnung', hint: 'Rechnung auf Basis des Einsatzes erstellen.', action: rechnungSchreiben } };
     return { primary: { label: 'Als bezahlt markieren', icon: 'check', hint: 'Bucht die Zahlung ein – der Auftrag gilt dann als bezahlt.',
-      action: () => { store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } } };
+      action: () => { const snap = store.snapshot(); store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert', { undo: () => store.restoreSnapshot(snap) }); } } };
   }
   if (a.status === 'abgerechnet') return {
     primary: { label: 'Als bezahlt markieren', icon: 'check', hint: 'Bucht die Zahlung ein – der Auftrag gilt dann als bezahlt.',
-      action: () => { if (rechnung) store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert'); } },
+      action: () => { const snap = store.snapshot(); if (rechnung) store.markPaid(rechnung.id); store.setAuftragStatus(id, 'bezahlt'); toast('Als bezahlt markiert', { undo: () => store.restoreSnapshot(snap) }); } },
   };
   return null; // bezahlt = Endzustand
 }
@@ -323,7 +323,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
 
   // Rechnung erstellen (aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag)
   const rechnungSchreiben = () => {
-    if (angebot) { const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt'); nav('rechnung', { id: rid }); }
+    if (angebot) { const snap = store.snapshot(); const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt', { undo: () => store.restoreSnapshot(snap) }); nav('rechnung', { id: rid }); }
     else { const mv = a.mietvertrag; nav('rechnung-neu', { auftragId: a.id, kundeId: a.kundeId, prefill: (mv && mv.positionen) ? { ...prefill, positionen: mv.positionen, von: mv.von || a.von, bis: mv.bis || a.bis } : prefill }); }
   };
   const angebotStatus = angebot ? (angebot.status === 'offen' && angebot.gueltigBis < store.today ? 'abgelaufen' : angebot.status) : null;
@@ -526,9 +526,9 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                     {/* Bearbeiten nur solange die Rechnung nicht bezahlt UND nicht versendet ist */}
                     {rechnung.status !== 'bezahlt' && !rechnung.versendetAm && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditRechnungOpen(true)}>Bearbeiten</window.UI.Btn>}
                     <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('rechnung')}>{rechnung.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>
-                    {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert'); }}>Als bezahlt</window.UI.Btn>}
+                    {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { const snap = store.snapshot(); store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert', { undo: () => store.restoreSnapshot(snap) }); }}>Als bezahlt</window.UI.Btn>}
                     {/* Mahnung nur solange nicht bezahlt – schließt sich gegenseitig aus */}
-                    {(rechnung.status === 'offen' || rechnung.status === 'ueberfaellig') && <window.UI.Btn size="sm" variant="ghost" icon="alert" onClick={() => { store.setStatus(rechnung.id, 'mahnung'); toast('Mahnung erstellt'); }}>Mahnung</window.UI.Btn>}
+                    {(rechnung.status === 'offen' || rechnung.status === 'ueberfaellig') && <window.UI.Btn size="sm" variant="ghost" icon="alert" onClick={() => { const snap = store.snapshot(); store.setStatus(rechnung.id, 'mahnung'); toast('Mahnung erstellt', { undo: () => store.restoreSnapshot(snap) }); }}>Mahnung</window.UI.Btn>}
                   </div>
                 </>
               ) : (
