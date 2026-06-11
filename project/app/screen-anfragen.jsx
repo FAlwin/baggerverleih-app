@@ -665,7 +665,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
-  const [filter, setFilter] = anfS('alle');
+  const [filter, setFilter] = anfS('aktiv');   // Standard: aktive Anfragen (neu + in Bearbeitung)
   const [detail, setDetail] = anfS(null);
   const [neuOpen, setNeuOpen] = anfS(false);
   const [ablehnAnf, setAblehnAnf] = anfS(null);
@@ -721,13 +721,13 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
   const loeschenAnf = (id) => { const snap = store.snapshot(); store.deleteAnfrage(id); toast('Anfrage gelöscht', { undo: () => store.restoreSnapshot(snap) }); };
 
   const all = store.anfragen || [];
+  const matchFilter = (a) => filter === 'alle' || (filter === 'aktiv' ? (a.status === 'neu' || a.status === 'in-bearbeitung') : a.status === filter);
   const rows = all
-    .filter((a) => filter === 'alle' || a.status === filter)
+    .filter(matchFilter)
     .sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
   const counts = {
+    aktiv: all.filter((a) => a.status === 'neu' || a.status === 'in-bearbeitung').length,
     alle: all.length,
-    neu: all.filter((a) => a.status === 'neu').length,
-    'in-bearbeitung': all.filter((a) => a.status === 'in-bearbeitung').length,
     erledigt: all.filter((a) => a.status === 'erledigt').length,
     abgelehnt: all.filter((a) => a.status === 'abgelehnt').length,
   };
@@ -736,7 +736,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
   const FilterBar = () => (
     <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', marginBottom: 2 }}>
       <div style={{ display: 'flex', gap: 7, paddingBottom: 2, minWidth: 'max-content' }}>
-        {[['alle', 'Alle'], ['neu', 'Neu'], ['in-bearbeitung', 'In Bearbeitung'], ['erledigt', 'Erledigt'], ['abgelehnt', 'Abgelehnt']].map(([id, label]) => {
+        {[['aktiv', 'Aktiv'], ['erledigt', 'Erledigt'], ['abgelehnt', 'Abgelehnt'], ['alle', 'Alle']].map(([id, label]) => {
           const on = filter === id;
           return (
             <button key={id} onClick={() => setFilter(id)} style={{
