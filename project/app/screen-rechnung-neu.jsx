@@ -1,8 +1,8 @@
 /* ============ SCREEN: Beleg-Editor — Angebot / Rechnung / Mietvertrag ============
-   Erstellen UND Bearbeiten teilen denselben reichen Erfassungs-Flow wie „Neue Anfrage":
-   Multi-Gerät-Picker, Verfügbarkeits-Kalender, Stunden-/Staffel-Achse und Zusatzleistungen
-   (window.GeraeteErfassung). Positionen werden aus den Geräten abgeleitet (auto) und lassen
-   sich zusätzlich manuell ergänzen, verschieben, bearbeiten.
+   Erstellen UND Bearbeiten teilen denselben Kachel-Flow wie „Neue Anfrage":
+   Die Geräte erscheinen als verschiebbare, eingeklappte Kacheln (Name, Zeitraum, Zusatzleistungen,
+   Preis). Klick → bearbeiten (Draft), ✓ übernimmt / ✗ verwirft. Die Kacheln SIND die Positionen;
+   zusätzlich lassen sich manuelle Zeilen (Service/Anbau/frei) ergänzen.
 
    params:
      mode: 'angebot' | 'rechnung'         (Neuanlage)
@@ -43,17 +43,15 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const [datum, setDatum] = nS(pf?.datum || store.today);
   const [faellig, setFaellig] = nS(pf?.faellig || window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
   const [ort, setOrt] = nS(pf?.ort || '');
-  // Mietvertrag-Begleitung nur bei Rechnungs-Neuanlage
-  const [mietvertrag, setMV] = nS(false);
+  const [mietvertrag, setMV] = nS(false);   // Begleit-MV nur bei Rechnungs-Neuanlage
 
-  // ----- Geräteerfassung (rows) — wie bei „Neue Anfrage" -----
+  // ----- Geräte-Kacheln (rows) -----
   const initRows = () => {
     if (pf && pf.geraete && pf.geraete.length) return pf.geraete.map((e) => window.entryToRow(store, e));
     if (pf && pf.geraetId) return [{ ...window.LEER_ROW(), geraetId: pf.geraetId, von: pf.von || '', bis: pf.bis || pf.von || '' }];
-    return [window.LEER_ROW()];
+    return [{ ...window.LEER_ROW(), geraetId: '' }];   // leere Karte → Geräteauswahl
   };
   const [rows, setRows] = nS(initRows);
-  const [activeIdx, setActiveIdx] = nS(0);
   const rowsTouched = nR(false);
   const setRowsTouched = (updater) => { rowsTouched.current = true; setRows(updater); };
 
@@ -65,44 +63,32 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const angebotVon = ent0 ? ent0.von : (pf?.von || '');
   const angebotBis = ent0 ? ent0.bis : (pf?.bis || '');
   const angebotGeraetId = ent0 ? ent0.geraetId : (pf?.geraetId || '');
-  const geraeteSumme = rows.reduce((a, r) => a + (window.rowOk(store, r) ? window.blockBetrag(store, r) : 0), 0);
 
-  // ----- Positionen: aus Geräten abgeleitet (auto) + manuell (auto:false) -----
-  const initPos = () => (pf && pf.positionen && pf.positionen.length) ? pf.positionen.map((p) => ({ ...p, auto: false })) : [];
-  const [pos, setPos] = nS(initPos);
-  const geraeteKey = nM(() => JSON.stringify(geraeteEntries), [geraeteEntries]);
-  nE(() => {
-    if (!rowsTouched.current) return;  // beim Öffnen vorhandene Positionen NICHT überschreiben
-    setPos((arr) => {
-      const manual = arr.filter((p) => !p.auto);
-      const derived = (window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: geraeteEntries }, store) : []).map((p) => ({ ...p, auto: true }));
-      return [...derived, ...manual];
-    });
-  }, [geraeteKey]);
-
-  // Manuelle Positionen
+  // ----- Positionen: aus den Geräte-Kacheln abgeleitet + manuelle Zeilen -----
+  const derived = nM(() => (window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: geraeteEntries }, store) : []), [geraeteEntries]);
+  // Manuelle Zeilen: beim Bearbeiten die Beleg-Positionen, die NICHT aus den Geräten stammen.
+  const initExtra = () => {
+    const pfPos = (pf && pf.positionen) ? pf.positionen.map((p) => ({ ...p })) : [];
+    if (!pfPos.length) return [];
+    const initialEntries = (pf && pf.geraete && pf.geraete.length) ? pf.geraete : [];
+    const d0 = window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: initialEntries }, store) : [];
+    const key = (p) => (p.text || '') + '|' + (p.einheit || '') + '|' + (Number(p.menge) || 0) + '|' + (Number(p.preis) || 0);
+    const pool = {}; d0.forEach((p) => { const k = key(p); pool[k] = (pool[k] || 0) + 1; });
+    return pfPos.filter((p) => { const k = key(p); if (pool[k]) { pool[k]--; return false; } return true; });
+  };
+  const [extraPos, setExtraPos] = nS(initExtra);
   const anbauGeraete = nM(() => store.db.flotte.filter((g) => g.kat === 'Anbau'), [store.db.flotte]);
-  const addAnbau = (gid) => {
-    const g = store.db.flotte.find((x) => x.id === gid); if (!g) return;
-    const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0] || { einheit: 'inklusive', preis: 0 };
-    setPos((arr) => [...arr, { text: g.name, einheit: tar.einheit, menge: 1, preis: tar.preis, auto: false }]);
-  };
-  const addService = (pid) => {
-    const p = store.db.preisliste.find((x) => x.id === pid); if (!p) return;
-    setPos((arr) => [...arr, { text: p.geraet, einheit: p.einheit, menge: 1, preis: p.preis, auto: false }]);
-  };
-  const addFree = () => setPos((arr) => [...arr, { text: '', einheit: 'Tag', menge: 1, preis: 0, auto: false }]);
-  const updatePos = (i, patch) => setPos((arr) => arr.map((p, j) => j === i ? { ...p, ...patch, auto: false } : p));
-  const removePos = (i) => setPos((arr) => arr.filter((_, j) => j !== i));
-  const movePos = (i, dir) => setPos((arr) => {
-    const j = i + dir; if (j < 0 || j >= arr.length) return arr;
-    const c = arr.map((p) => ({ ...p, auto: false }));
-    const tmp = c[i]; c[i] = c[j]; c[j] = tmp; return c;
-  });
+  const addAnbau = (gid) => { const g = store.db.flotte.find((x) => x.id === gid); if (!g) return; const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0] || { einheit: 'inklusive', preis: 0 }; setExtraPos((a) => [...a, { text: g.name, einheit: tar.einheit, menge: 1, preis: tar.preis }]); };
+  const addService = (pid) => { const p = store.db.preisliste.find((x) => x.id === pid); if (!p) return; setExtraPos((a) => [...a, { text: p.geraet, einheit: p.einheit, menge: 1, preis: p.preis }]); };
+  const addFree = () => setExtraPos((a) => [...a, { text: '', einheit: 'Pauschale', menge: 1, preis: 0 }]);
+  const updExtra = (i, patch) => setExtraPos((a) => a.map((p, j) => j === i ? { ...p, ...patch } : p));
+  const removeExtra = (i) => setExtraPos((a) => a.filter((_, j) => j !== i));
+  const moveExtra = (i, dir) => setExtraPos((a) => { const j = i + dir; if (j < 0 || j >= a.length) return a; const c = a.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; });
 
-  const total = pos.reduce((a, p) => a + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
+  const positionen = [...derived, ...extraPos].map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 }));
+  const total = positionen.reduce((a, p) => a + p.menge * p.preis, 0);
 
-  // ----- Gültig bis (Angebot): Neuanlage automatisch (mit Vorlauf-Deckel → dringend); Bearbeiten frei editierbar -----
+  // ----- Gültig bis (Angebot) -----
   const _vorlauf = (store.db.settings && store.db.settings.angebotVorlaufTage) || 0;
   const _gTage = (store.db.settings && store.db.settings.angebotGueltigTage) || 14;
   const gueltigNormal = window.addDays(store.today, _gTage);
@@ -113,42 +99,39 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const gueltigGekuerzt = !isEdit && !!(gueltigCap && gueltigCap < gueltigNormal);
   const dringend = isAngebot && (gueltigGekuerzt || gueltigBis <= store.today);
 
-  // Mietzeit (Begleit-MV bei Rechnung / MV-Bearbeitung)
   const mietVon = angebotVon || pf?.von || store.today;
   const mietBis = angebotBis || pf?.bis || window.addDays(store.today, 1);
 
   const kundeObj = neuerKunde ? { ...nk, id: '__neu' } : store.kundeById(kundeId);
   const draft = {
     id: pf?.belegId || '(Entwurf)', kundeId: kundeObj?.id || '', datum, faellig,
-    positionen: pos.length ? pos.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })) : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
+    positionen: positionen.length ? positionen : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
     status: 'offen',
   };
   const kundeOk = kundeObj && (neuerKunde ? nk.name && nk.city : kundeId);
-  const canSave = kundeOk && pos.length > 0 && total > 0;
+  const canSave = kundeOk && positionen.length > 0 && total > 0;
 
   const persistKunde = () => neuerKunde ? store.addKunde(nk) : kundeId;
 
   const save = () => {
-    const positionen = draft.positionen;
-    // ----- Bearbeiten -----
+    const pos = positionen;
     if (isEdit) {
       const auId = params.editAuftragId || params.auftragId;
       if (rowsTouched.current && auId && geraeteEntries.length && store.setAuftragGeraete) store.setAuftragGeraete(auId, geraeteEntries);
       if (kind === 'angebot') {
         const wasAb = pf && pf.gueltigBis && pf.gueltigBis < store.today;
-        store.updateAngebot(params.editId, { positionen, betrag: total, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, gueltigBis, ...(wasAb && gueltigBis >= store.today ? { status: 'offen' } : {}) });
+        store.updateAngebot(params.editId, { positionen: pos, betrag: total, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, gueltigBis, ...(wasAb && gueltigBis >= store.today ? { status: 'offen' } : {}) });
         toast('Angebot aktualisiert');
       } else if (kind === 'rechnung') {
-        store.updateRechnung(params.editId, { positionen });
+        store.updateRechnung(params.editId, { positionen: pos });
         toast('Rechnung aktualisiert');
       } else {
-        store.mietvertragUpdate(auId, { positionen, von: mietVon, bis: mietBis });
+        store.mietvertragUpdate(auId, { positionen: pos, von: mietVon, bis: mietBis });
         toast('Mietvertrag aktualisiert');
       }
       nav('auftrag', { id: auId });
       return;
     }
-    // ----- Neuanlage -----
     const kId = persistKunde();
     const N = (store.db.settings && store.db.settings.nummern) || {};
     const akr = N.auftrag || { prefix: 'AU', start: 1 };
@@ -158,15 +141,14 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
       geraetId: angebotGeraetId, von: angebotVon || datum, bis: angebotBis || angebotVon || datum,
       vonZeit: ent0 ? ent0.vonZeit : '08:00', bisZeit: ent0 ? ent0.bisZeit : '17:00', ort,
     };
-    // Bei bestehendem Auftrag die geänderten Geräte übernehmen
     if (params.auftragId && rowsTouched.current && geraeteEntries.length && store.setAuftragGeraete) store.setAuftragGeraete(params.auftragId, geraeteEntries);
     if (isAngebot) {
       store.belegAnlegen({ kind: 'angebot', auftragId, neuerAuftrag, anfrageId: params.anfrageId,
-        belegData: { kundeId: kId, datum, gueltigBis, positionen, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, dringend } });
+        belegData: { kundeId: kId, datum, gueltigBis, positionen: pos, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, dringend } });
       toast('Angebot erstellt'); nav('auftrag', { id: auftragId });
     } else {
       store.belegAnlegen({ kind: 'rechnung', auftragId, neuerAuftrag,
-        belegData: { kundeId: kId, datum, faellig, positionen, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null } });
+        belegData: { kundeId: kId, datum, faellig, positionen: pos, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null } });
       toast('Rechnung erstellt'); nav('auftrag', { id: auftragId });
     }
   };
@@ -193,7 +175,6 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
 
       <div className="content-pad" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 20, alignItems: 'start' }}>
         <div className="stack" style={{ gap: 16, minWidth: 0 }}>
-          {/* Prefill-Banner */}
           {pf && !isEdit && (
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', border: '1px solid var(--yellow)', fontSize: 13 }}>
               <Icon name="bell" size={17} color="var(--yellow-deep)" style={{ flex: '0 0 auto', marginTop: 1 }} />
@@ -234,65 +215,51 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             )}
           </window.UI.Card>
 
-          {/* Geräte & Zeitraum — reiche Erfassung wie bei „Neue Anfrage" */}
+          {/* Positionen = Geräte-Kacheln + manuelle Zeilen */}
           <window.UI.Card style={{ padding: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Geräte & Zeitraum</h2>
-              {geraeteSumme > 0 && <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>{F.fmtEUR(geraeteSumme)}</span>}
-            </div>
-            <window.GeraeteErfassung store={store} F={F} rows={rows} setRows={setRowsTouched} activeIdx={activeIdx} setActiveIdx={setActiveIdx} />
-            <window.UI.Field label="Einsatzort (Adresse)" style={{ marginTop: 14 }}>
-              <window.UI.Input value={ort} onChange={(e) => setOrt(e.target.value)} placeholder="z. B. Musterstraße 5, 53797 Lohmar" />
-            </window.UI.Field>
-          </window.UI.Card>
+            <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Positionen</h2>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Geräte als Kacheln (Klick zum Bearbeiten, ✓ übernehmen) – verschiebbar. Zusätzlich manuelle Zeilen möglich.</div>
 
-          {/* Positionen */}
-          <window.UI.Card style={{ padding: 18 }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Positionen</h2>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Aus den Geräten oben automatisch erzeugt · zusätzlich manuelle Zeilen möglich (alle editier- und verschiebbar).</div>
-            <div className="stack" style={{ gap: 8 }}>
-              {pos.map((p, i) => (
-                <div key={i} style={mobile
-                  ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 86px', gap: 6, alignItems: 'center' }
-                  : { display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 86px', gap: 7, alignItems: 'center' }}>
-                  <window.UI.Input value={p.text} onChange={(e) => updatePos(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '8px 10px', fontSize: 13, gridColumn: mobile ? '1 / -1' : 'auto' }} />
-                  <window.UI.Input type="number" value={p.menge} onChange={(e) => updatePos(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'center' }} />
-                  <window.UI.Input value={p.einheit} onChange={(e) => updatePos(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px 8px', fontSize: 12.5 }} />
-                  <window.UI.Input type="number" value={p.preis} onChange={(e) => updatePos(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'right' }} />
-                  <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                    <window.UI.IconBtn name="chevron" size={13} disabled={i === 0} onClick={() => movePos(i, -1)} title="nach oben" style={{ width: 26, height: 32, transform: 'rotate(-90deg)' }} />
-                    <window.UI.IconBtn name="chevron" size={13} disabled={i === pos.length - 1} onClick={() => movePos(i, 1)} title="nach unten" style={{ width: 26, height: 32, transform: 'rotate(90deg)' }} />
-                    <window.UI.IconBtn name="trash" size={15} onClick={() => removePos(i)} title="Entfernen" style={{ width: 28, height: 32 }} />
+            <window.GeraeteErfassung store={store} F={F} rows={rows} setRows={setRowsTouched} />
+
+            {/* Manuelle Positionen */}
+            {extraPos.length > 0 && (
+              <div className="stack" style={{ gap: 8, marginTop: 12 }}>
+                <div className="kicker" style={{ color: 'var(--muted)' }}>Weitere Positionen</div>
+                {extraPos.map((p, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 54px 90px 80px 78px', gap: 6, alignItems: 'center', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
+                    <window.UI.Input value={p.text} onChange={(e) => updExtra(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '7px 9px', fontSize: 13 }} />
+                    <window.UI.Input type="number" value={p.menge} onChange={(e) => updExtra(i, { menge: e.target.value })} title="Menge" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'center' }} />
+                    <window.UI.Input value={p.einheit} onChange={(e) => updExtra(i, { einheit: e.target.value })} title="Einheit" style={{ padding: '7px 6px', fontSize: 12.5 }} />
+                    <window.UI.Input type="number" value={p.preis} onChange={(e) => updExtra(i, { preis: e.target.value })} title="Einzelpreis €" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'right' }} />
+                    <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <window.UI.IconBtn name="chevronD" size={12} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 24, height: 30, transform: 'rotate(180deg)' }} />
+                      <window.UI.IconBtn name="chevronD" size={12} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 24, height: 30 }} />
+                      <window.UI.IconBtn name="trash" size={14} onClick={() => removeExtra(i)} title="Entfernen" style={{ width: 26, height: 30 }} />
+                    </div>
                   </div>
-                </div>
-              ))}
-              {pos.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Noch keine Positionen. Oben ein Gerät erfassen oder unten eine Position hinzufügen ↓</div>}
-            </div>
+                ))}
+              </div>
+            )}
 
-            {/* Manuelle Zusatz-Positionen */}
-            <div style={{ marginTop: 16, padding: '14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Manuelle Zeile hinzufügen */}
+            <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {anbauGeraete.length > 0 && (
                 <div>
-                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Anbaugeräte &amp; Zubehör</div>
+                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Anbaugeräte &amp; Zubehör</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {anbauGeraete.map((g) => {
                       const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0];
-                      return (
-                        <button key={g.id} onClick={() => addAnbau(g.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                          + {g.name}{tar && tar.preis > 0 ? ' · ' + F.fmtEUR(tar.preis) : (tar && tar.einheit === 'inklusive' ? ' · inkl.' : '')}
-                        </button>
-                      );
+                      return <button key={g.id} onClick={() => addAnbau(g.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>+ {g.name}{tar && tar.preis > 0 ? ' · ' + F.fmtEUR(tar.preis) : (tar && tar.einheit === 'inklusive' ? ' · inkl.' : '')}</button>;
                     })}
                   </div>
                 </div>
               )}
-              <div style={anbauGeraete.length > 0 ? { borderTop: '1px solid var(--line)', paddingTop: 14 } : {}}>
-                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Sonstige Servicepositionen</div>
+              <div style={anbauGeraete.length > 0 ? { borderTop: '1px solid var(--line)', paddingTop: 12 } : {}}>
+                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Sonstige Positionen</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
-                    <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                      + {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}
-                    </button>
+                    <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>+ {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}</button>
                   ))}
                   <button onClick={addFree} style={{ fontSize: 12, padding: '5px 10px', border: '1px dashed var(--line)', borderRadius: 'var(--r)', background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'var(--muted)' }}>+ Freie Position</button>
                 </div>
@@ -320,7 +287,7 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             {isAngebot && gueltigGekuerzt && (
               <div style={{ display: 'flex', gap: 9, padding: '10px 12px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, marginTop: 12 }}>
                 <Icon name="alert" size={16} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
-                <span><b>Verkürzte Gültigkeit:</b> Wegen des nahen Arbeitsbeginns ({F.fmtDate(angebotVon)}) endet die Gültigkeit schon am <b>{F.fmtDate(gueltigBis)}</b> ({_vorlauf} Tage vorher) statt nach {_gTage} Tagen. Das Angebot wird beim Versand als <b>dringend</b> markiert.</span>
+                <span><b>Verkürzte Gültigkeit:</b> Wegen des nahen Arbeitsbeginns ({F.fmtDate(angebotVon)}) endet die Gültigkeit schon am <b>{F.fmtDate(gueltigBis)}</b> ({_vorlauf} Tage vorher). Das Angebot wird beim Versand als <b>dringend</b> markiert.</span>
               </div>
             )}
             {!isAngebot && !isMV && !isEdit && (

@@ -255,25 +255,32 @@ function blockBetrag(store, row) {
 }
 
 // ---- Ein Geräte-Block: Picker + Kalender + Zeit-/Tageswahl + Zusatzleistungen ----
-function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded = true, onExpand }) {
-  const g = store.geraetById(row.geraetId) || {};
+// Bearbeitungsmodell: eingeklappt zeigt die übernommenen Werte (row). Beim Aufklappen wird ein lokaler
+// DRAFT bearbeitet; erst „Übernehmen" (✓) schreibt ihn via onCommit zurück, „Abbrechen" (✗) verwirft ihn (onCancel).
+function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, onMoveUp, onMoveDown, canReorder, expanded = false, onExpand }) {
+  const [draft, setDraft] = anfS(row);
+  React.useEffect(() => { if (expanded) setDraft(row); }, [expanded]);   // beim Aufklappen frisch vom übernommenen Stand
+  const r = expanded ? draft : row;                                      // angezeigte Werte
+  const apply = (p) => { if (expanded) setDraft((d) => ({ ...d, ...p })); else onCommit && onCommit({ ...row, ...p }); };
+
+  const g = store.geraetById(r.geraetId) || {};
   const hour = isHourMode(g);
-  const tage = tageInkl(row.von, row.bis);
-  const dayMode = !hour || row.modus === 'tage';                // Tages-Drawer statt Stundenachse
-  const multiTag = !!row.von && !!row.bis && row.bis > row.von; // mehrere ganze Tage gewählt
-  const gb = geraetBetrag(g, row);
-  const [info, setInfo] = anfS('');                             // Hinweis (z. B. „ab … belegt")
+  const tage = tageInkl(r.von, r.bis);
+  const dayMode = !hour || r.modus === 'tage';                // Tages-Drawer statt Stundenachse
+  const multiTag = !!r.von && !!r.bis && r.bis > r.von;       // mehrere ganze Tage gewählt
+  const gb = geraetBetrag(g, r);
+  const [info, setInfo] = anfS('');                           // Hinweis (z. B. „ab … belegt")
   const vermietbar = store.db.flotte.filter((x) => window.istVermietbar(x));
-  const sub = blockBetrag(store, row);
+  const sub = blockBetrag(store, r);
+  const draftOk = !!r.geraetId && (window.rowOk ? window.rowOk(store, r) : true);
 
   const selectDev = (gid) => {
-    const ng = store.geraetById(gid);
     const eh = geraetEinheiten(store, gid);
-    const keep = row.von && dayStatus(store, gid, row.von) === 'frei';
-    onChange({ geraetId: gid, einheit: eh[0] || 'Tag', dauer: 1, sel: null, modus: 'stunde', zusatz: {}, von: keep ? row.von : '', bis: keep ? row.von : '' });
+    const keep = r.von && dayStatus(store, gid, r.von) === 'frei';
+    apply({ geraetId: gid, einheit: eh[0] || 'Tag', dauer: 1, sel: null, modus: 'stunde', zusatz: {}, von: keep ? r.von : '', bis: keep ? r.von : '' });
     setInfo('');
   };
-  const setModus = (m) => { onChange({ modus: m, sel: m === 'tage' ? null : row.sel, bis: m === 'stunde' ? (row.von || '') : row.bis }); setInfo(''); };
+  const setModus = (m) => { apply({ modus: m, sel: m === 'tage' ? null : r.sel, bis: m === 'stunde' ? (r.von || '') : r.bis }); setInfo(''); };
   const pick = (di, st) => {
     setInfo('');
     // Nicht-freie Tage: kurze Erklärung statt stiller Nichtreaktion
@@ -283,34 +290,34 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
       else if (st === 'geschlossen') setInfo(F.fmtDate(di) + ' ist ein Sperrtag (Wochenende) – als Start nicht wählbar.');
       return;
     }
-    if (!dayMode) { onChange({ von: di, bis: di, sel: null }); return; }   // Stunden-Modus: nur Einzeltag
-    if (!row.von || di < row.von || (row.bis && row.bis !== row.von)) { onChange({ von: di, bis: di }); return; }
-    if (di === row.von) return;
-    if (rangeFrei(store, row.geraetId, row.von, di)) { onChange({ bis: di }); return; }
+    if (!dayMode) { apply({ von: di, bis: di, sel: null }); return; }   // Stunden-Modus: nur Einzeltag
+    if (!r.von || di < r.von || (r.bis && r.bis !== r.von)) { apply({ von: di, bis: di }); return; }
+    if (di === r.von) return;
+    if (rangeFrei(store, r.geraetId, r.von, di)) { apply({ bis: di }); return; }
     // Bereich blockiert → bis zum letzten freien Tag vor der Sperre begrenzen + erklären
-    let last = row.von, c = window.addDays(row.von, 1), blocked = null, guard = 0;
-    while (c <= di && guard < 400) { const st = dayStatus(store, row.geraetId, c); if (st === 'belegt' || st === 'reserviert' || st === 'past') { blocked = c; break; } last = c; c = window.addDays(c, 1); guard++; }
-    const grund = blocked && dayStatus(store, row.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
-    if (last > row.von) { onChange({ bis: last }); setInfo('Nur bis ' + F.fmtDate(last) + ' frei – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
-    else { onChange({ bis: row.von }); setInfo('Verlängerung nicht möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
+    let last = r.von, c = window.addDays(r.von, 1), blocked = null, guard = 0;
+    while (c <= di && guard < 400) { const st = dayStatus(store, r.geraetId, c); if (st === 'belegt' || st === 'reserviert' || st === 'past') { blocked = c; break; } last = c; c = window.addDays(c, 1); guard++; }
+    const grund = blocked && dayStatus(store, r.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
+    if (last > r.von) { apply({ bis: last }); setInfo('Nur bis ' + F.fmtDate(last) + ' frei – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
+    else { apply({ bis: r.von }); setInfo('Verlängerung nicht möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.'); }
   };
   const setTage = (n) => {
     setInfo('');
-    let c = row.von, cnt = 1, guard = 0, blocked = null;
+    let c = r.von, cnt = 1, guard = 0, blocked = null;
     while (cnt < n && guard < 400) {
       let nx = window.addDays(c, 1), g2 = 0; while (!window.istMiettag(nx) && g2 < 14) { nx = window.addDays(nx, 1); g2++; }
-      const st = dayStatus(store, row.geraetId, nx);
+      const st = dayStatus(store, r.geraetId, nx);
       if (st === 'belegt' || st === 'reserviert' || st === 'past') { blocked = nx; break; }
       c = nx; cnt++; guard++;
     }
-    onChange({ bis: c });
+    apply({ bis: c });
     if (blocked && cnt < n) {
-      const grund = dayStatus(store, row.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
+      const grund = dayStatus(store, r.geraetId, blocked) === 'reserviert' ? 'reserviert' : 'belegt';
       setInfo('Nur ' + cnt + ' Tag' + (cnt !== 1 ? 'e' : '') + ' am Stück möglich – ab ' + F.fmtDate(blocked) + ' ' + grund + '.');
     }
   };
 
-  const busy = (hour && row.von) ? busyForDay(store, row.geraetId, row.von) : [];
+  const busy = (hour && r.von) ? busyForDay(store, r.geraetId, r.von) : [];
   const modellChip = (gg) => {
     const m = geraetModell(gg), hr = isHourMode(gg);
     const lbl = m === 'staffel' ? 'STAFFEL' : m === 'stunde' ? 'STUNDENWEISE' : 'TAGEWEISE';
@@ -325,8 +332,8 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 
   // ---- Zusatzleistung-Zeile ----
   const ZusatzRow = ({ z }) => {
-    const st = (row.zusatz || {})[z.id] || { on: false };
-    const setZ = (patch) => onChange({ zusatz: { ...(row.zusatz || {}), [z.id]: { ...st, ...patch } } });
+    const st = (r.zusatz || {})[z.id] || { on: false };
+    const setZ = (patch) => apply({ zusatz: { ...(r.zusatz || {}), [z.id]: { ...st, ...patch } } });
     const betrag = zusatzBetrag(z, st, tage);
     return (
       <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r)', padding: '9px 11px', background: st.on ? 'var(--yellow-wash)' : 'var(--paper)' }}>
@@ -381,15 +388,21 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 
   // Zusammenfassung des gewählten Zeitraums (für die eingeklappte Kachel)
   const zeitText = multiTag
-    ? F.fmtDate(row.von) + ' → ' + F.fmtDate(row.bis) + ' · ' + tage + ' Tage'
+    ? F.fmtDate(r.von) + ' → ' + F.fmtDate(r.bis) + ' · ' + tage + ' Tage'
     : hour
-      ? (row.von && row.sel ? F.fmtDate(row.von) + ' · ' + decToH(row.sel.start) + '–' + decToH(row.sel.end) : 'Zeit noch wählen')
-      : (row.von ? F.fmtDate(row.von) + (row.bis && row.bis !== row.von ? ' → ' + F.fmtDate(row.bis) : '') + ' · ' + tage + ' Tag' + (tage !== 1 ? 'e' : '') : 'Zeitraum noch wählen');
+      ? (r.von && r.sel ? F.fmtDate(r.von) + ' · ' + decToH(r.sel.start) + '–' + decToH(r.sel.end) : 'Zeit noch wählen')
+      : (r.von ? F.fmtDate(r.von) + (r.bis && r.bis !== r.von ? ' → ' + F.fmtDate(r.bis) : '') + ' · ' + tage + ' Tag' + (tage !== 1 ? 'e' : '') : 'Zeitraum noch wählen');
 
   // ---- Eingeklappte Kachel ----
   if (!expanded) {
     return (
-      <div onClick={onExpand} style={{ display: 'flex', alignItems: 'center', gap: 11, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '11px 13px', background: 'var(--paper)', cursor: 'pointer' }}>
+      <div onClick={onExpand} style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '11px 13px', background: 'var(--paper)', cursor: 'pointer' }}>
+        {canReorder && total > 1 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: '0 0 auto' }}>
+            <window.UI.IconBtn name="chevronD" size={12} title="nach oben" disabled={idx === 0} onClick={(e) => { e.stopPropagation(); onMoveUp && onMoveUp(); }} style={{ width: 24, height: 19, transform: 'rotate(180deg)' }} />
+            <window.UI.IconBtn name="chevronD" size={12} title="nach unten" disabled={idx === total - 1} onClick={(e) => { e.stopPropagation(); onMoveDown && onMoveDown(); }} style={{ width: 24, height: 19 }} />
+          </div>
+        )}
         <window.GeraetBadge geraet={g} size={34} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name || 'Gerät'}</div>
@@ -397,25 +410,18 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
         </div>
         <span className="num" style={{ flex: '0 0 auto', fontSize: 14, fontWeight: 700 }}>{F.fmtEUR(sub)}</span>
         <window.UI.IconBtn name="edit" size={14} title="Bearbeiten" onClick={(e) => { e.stopPropagation(); onExpand && onExpand(); }} style={{ width: 30, height: 30, flex: '0 0 auto' }} />
-        {total > 1 && <window.UI.IconBtn name="trash" size={14} title="Gerät entfernen" onClick={(e) => { e.stopPropagation(); onRemove(); }} style={{ width: 30, height: 30, flex: '0 0 auto' }} />}
+        <window.UI.IconBtn name="trash" size={14} title="Gerät entfernen" onClick={(e) => { e.stopPropagation(); onRemove && onRemove(); }} style={{ width: 30, height: 30, flex: '0 0 auto' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 14, background: 'var(--paper)' }}>
-      {total > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div className="kicker" style={{ color: 'var(--muted)' }}>Gerät {idx + 1}</div>
-          <window.UI.IconBtn name="trash" size={15} title="Gerät entfernen" onClick={onRemove} style={{ width: 30, height: 30 }} />
-        </div>
-      )}
-
+    <div style={{ border: '1.5px solid var(--ink)', boxShadow: '0 0 0 1.5px var(--ink)', borderRadius: 'var(--r-lg)', padding: 14, background: 'var(--paper)' }}>
       {/* Geräte-Picker */}
       <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Gerät wählen</div>
       <div className="stack" style={{ gap: 9 }}>
         {vermietbar.map((gg) => {
-          const on = gg.id === row.geraetId; const [pv, pe] = preisVorschau(gg);
+          const on = gg.id === r.geraetId; const [pv, pe] = preisVorschau(gg);
           return (
             <div key={gg.id} onClick={() => selectDev(gg.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 'var(--r-lg)', cursor: 'pointer', border: '1.5px solid ' + (on ? 'var(--ink)' : 'var(--line)'), boxShadow: on ? '0 0 0 1.5px var(--ink)' : 'none', background: 'var(--paper)' }}>
               <window.GeraetBadge geraet={gg} size={42} />
@@ -433,6 +439,8 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
         })}
       </div>
 
+      {/* Erst nach Geräteauswahl: Zeitraum + Zusatzleistungen */}
+      {r.geraetId && (<>
       {/* Buchungsart bei Stunden-/Staffelgeräten */}
       {hour && (
         <div style={{ marginTop: 14 }}>
@@ -448,20 +456,20 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 
       {/* Verfügbarkeit */}
       <div className="kicker" style={{ color: 'var(--muted)', margin: '16px 0 8px' }}>Verfügbarkeit</div>
-      <VerfuegbarkeitsKalender store={store} geraetId={row.geraetId} selected={row.von} bis={row.bis || row.von} onPick={pick} />
+      <VerfuegbarkeitsKalender store={store} geraetId={r.geraetId} selected={r.von} bis={r.bis || r.von} onPick={pick} />
       {info && <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: '#8a6d00', background: 'var(--yellow-soft)', border: '1px solid #e2c75e', borderRadius: 'var(--r)', padding: '8px 11px' }}><Icon name="alert" size={14} color="#8a6d00" /> {info}</div>}
 
       {/* Detail-Drawer: Tage (mehrtägig oder Tagesgerät) vs. Stundenachse */}
       {dayMode ? (
         <div style={{ marginTop: 12, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', background: 'var(--paper-2)', padding: 14 }}>
-          {!row.von ? (
+          {!r.von ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
               <Icon name="kalender" size={16} /> Tageweise ({F.fmtEUR(tagSatz(g))}/Tag) – Start- und Endtag im Kalender antippen.
             </div>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{F.fmtDate(row.von)}{row.bis && row.bis !== row.von ? ' → ' + F.fmtDate(row.bis) : ''}</div>
+                <div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{F.fmtDate(r.von)}{r.bis && r.bis !== r.von ? ' → ' + F.fmtDate(r.bis) : ''}</div>
                 <span className="num" style={{ fontSize: 12, fontWeight: 700, background: 'var(--yellow)', borderRadius: 20, padding: '2px 10px' }}>{tage} Tag{tage !== 1 ? 'e' : ''}</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 10, alignItems: 'center' }}>
@@ -481,7 +489,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
         </div>
       ) : (
         <div style={{ marginTop: 12, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', background: 'var(--paper-2)', padding: 14 }}>
-          {!row.von ? (
+          {!r.von ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
               <Icon name="clock" size={16} /> Zuerst einen freien Tag im Kalender wählen.
             </div>
@@ -493,21 +501,21 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
                 </div>
                 <div style={{ display: 'flex', gap: 0, border: '1px solid var(--line-2)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
                   {[[0.5, '30 Min'], [1, '1 Std']].map(([gv, gl]) => (
-                    <button key={gl} type="button" onClick={() => onChange({ gran: gv })} style={{ padding: '4px 9px', fontSize: 11.5, fontFamily: 'inherit', border: 'none', cursor: 'pointer', background: row.gran === gv ? 'var(--ink)' : 'var(--paper)', color: row.gran === gv ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{gl}</button>
+                    <button key={gl} type="button" onClick={() => apply({ gran: gv })} style={{ padding: '4px 9px', fontSize: 11.5, fontFamily: 'inherit', border: 'none', cursor: 'pointer', background: r.gran === gv ? 'var(--ink)' : 'var(--paper)', color: r.gran === gv ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{gl}</button>
                   ))}
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div className="num" style={{ fontSize: 22, fontWeight: 700 }}>{row.sel ? decToH(row.sel.start) + ' → ' + decToH(row.sel.end) : <span style={{ fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>Zeitfenster auf der Achse wählen ↓</span>}</div>
-                {row.sel && <span className="num" style={{ fontSize: 12, fontWeight: 700, background: 'var(--yellow)', borderRadius: 20, padding: '2px 10px' }}>{(row.sel.end - row.sel.start)} Std</span>}
+                <div className="num" style={{ fontSize: 22, fontWeight: 700 }}>{r.sel ? decToH(r.sel.start) + ' → ' + decToH(r.sel.end) : <span style={{ fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>Zeitfenster auf der Achse wählen ↓</span>}</div>
+                {r.sel && <span className="num" style={{ fontSize: 12, fontWeight: 700, background: 'var(--yellow)', borderRadius: 20, padding: '2px 10px' }}>{(r.sel.end - r.sel.start)} Std</span>}
               </div>
-              <StundenAchse busy={busy} sel={row.sel} gran={row.gran || 1} minDur={geraetModell(g) === 'staffel' ? ((staffelTiers(g)[0] && staffelTiers(g)[0].h) || (row.gran || 1)) : (row.gran || 1)} onChange={(s) => onChange({ sel: s })} />
+              <StundenAchse busy={busy} sel={r.sel} gran={r.gran || 1} minDur={geraetModell(g) === 'staffel' ? ((staffelTiers(g)[0] && staffelTiers(g)[0].h) || (r.gran || 1)) : (r.gran || 1)} onChange={(s) => apply({ sel: s })} />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 12 }}>
                 {geraetModell(g) === 'staffel'
-                  ? staffelTiers(g).map((t) => chip(t.label + ' · ' + F.fmtEUR(t.preis), () => onChange({ sel: computeRange(busy, WS, WS + t.h, row.gran || 1) }), gb.tier && gb.tier.label === t.label))
-                  : [['Vormittag', 7, 12], ['Nachmittag', 13, 18], ['Ganzer Tag', 7, 18], ['½ Tag', 8, 12]].map(([l, a, b]) => chip(l, () => onChange({ sel: computeRange(busy, a, b, row.gran || 1) })))}
+                  ? staffelTiers(g).map((t) => chip(t.label + ' · ' + F.fmtEUR(t.preis), () => apply({ sel: computeRange(busy, WS, WS + t.h, r.gran || 1) }), gb.tier && gb.tier.label === t.label))
+                  : [['Vormittag', 7, 12], ['Nachmittag', 13, 18], ['Ganzer Tag', 7, 18], ['½ Tag', 8, 12]].map(([l, a, b]) => chip(l, () => apply({ sel: computeRange(busy, a, b, r.gran || 1) })))}
               </div>
-              {row.sel && (
+              {r.sel && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px dashed var(--line-2)', marginTop: 12, paddingTop: 10 }}>
                   <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                     {gb.staffel ? <>Paket <b>{gb.tier ? gb.tier.label : '–'}</b> (für {gb.h} Std)</> : <><b>{gb.h} Std</b> × {F.fmtEUR(stundenSatz(g))}/Std</>}
@@ -535,6 +543,13 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Zwischensumme {g.name}</span>
         <span className="num" style={{ fontSize: 16, fontWeight: 700 }}>{F.fmtEUR(sub)}</span>
       </div>
+      </>)}
+
+      {/* Aktionen: Abbrechen (verwirft Draft) / Übernehmen (schreibt in den Beleg) */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
+        <window.UI.Btn size="sm" variant="ghost" icon="x" onClick={() => onCancel && onCancel()}>Abbrechen</window.UI.Btn>
+        <window.UI.Btn size="sm" icon="check" disabled={!draftOk} onClick={() => draftOk && onCommit && onCommit(draft)} style={{ opacity: draftOk ? 1 : .45 }}>Übernehmen</window.UI.Btn>
+      </div>
     </div>
   );
 }
@@ -543,24 +558,21 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
 const LEER_ROW = () => ({ geraetId: 'bagger', von: '', bis: '', vonZeit: '07:00', bisZeit: '17:00', dauer: 1, einheit: 'Tag', gran: 1, sel: null, modus: 'stunde', zusatz: {} });
 function NeueAnfrageModal({ open, onClose, store, F, onSaved, prefill }) {
   const [form, setForm] = anfS({ name: '', phone: '', email: '', ort: '', nachricht: '' });
-  const [rows, setRows] = anfS([LEER_ROW()]);
-  const [activeIdx, setActiveIdx] = anfS(0);
+  const [rows, setRows] = anfS([{ ...LEER_ROW(), geraetId: '' }]);   // Start: leere Karte (Geräteauswahl)
   const toast = window.UI.useToast();
-  const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
   const total = rows.reduce((a, r) => a + blockBetrag(store, r), 0);
   // Vorbefüllung (z. B. aus dem Kalender-Klick): Datum + ggf. Gerät übernehmen
   React.useEffect(() => {
     if (!open || !prefill || (!prefill.von && !prefill.geraetId)) return;
     const pg = prefill.geraetId && store.geraetById(prefill.geraetId);
-    const gid = pg && window.istVermietbar(pg) ? prefill.geraetId : 'bagger';
+    const gid = pg && window.istVermietbar(pg) ? prefill.geraetId : '';
     setRows([{ ...LEER_ROW(), geraetId: gid, von: prefill.von || '', bis: prefill.von || '' }]);
-    setActiveIdx(0);
   }, [open]);
 
   const rowOk = (r) => { const g = store.geraetById(r.geraetId); if (!g) return false; if (isHourMode(g)) return r.modus === 'tage' ? !!r.von : (!!r.von && !!r.sel); return !!r.von && !!r.bis; };
   const valid = form.name.trim() && form.phone.trim() && form.email.trim() && form.ort.trim() && form.nachricht.trim() && rows.length && rows.every(rowOk);
 
-  const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([LEER_ROW()]); setActiveIdx(0); };
+  const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([{ ...LEER_ROW(), geraetId: '' }]); };
   const save = async () => {
     if (!valid) { alert('Bitte alle Pflichtfelder und für jedes Gerät eine gültige Zeitauswahl angeben.'); return; }
     // Kontaktdaten plausibilisieren (E-Mail-Format + Telefon-Ziffernanzahl); die Adresse prüft das Geocoding weiter unten.
@@ -610,8 +622,7 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved, prefill }) {
         </div>
         <window.UI.Field label="E-Mail *"><window.UI.Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@beispiel.de" /></window.UI.Field>
 
-        {rows.map((r, i) => <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} expanded={i === activeIdx} onExpand={() => setActiveIdx(i)} onChange={(p) => setRow(i, p)} onRemove={() => { setRows((rs) => rs.filter((_, j) => j !== i)); setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(i, rows.length - 2) : a)); }} />)}
-        <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setRows((rs) => [...rs, LEER_ROW()]); setActiveIdx(rows.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
+        <window.GeraeteErfassung store={store} F={F} rows={rows} setRows={setRows} />
 
         <window.UI.Field label="Einsatzort (Adresse) *"><window.UI.Input value={form.ort} onChange={(e) => setForm({ ...form, ort: e.target.value })} placeholder="z. B. Musterstraße 5, 53797 Lohmar" /></window.UI.Field>
         <window.UI.Field label="Nachricht / Notiz *"><window.UI.Textarea value={form.nachricht} onChange={(e) => setForm({ ...form, nachricht: e.target.value })} placeholder="Was ist geplant?" rows={3} /></window.UI.Field>
@@ -647,13 +658,29 @@ window.entryToRow = (store, e) => {
   (Array.isArray(e.zusatz) ? e.zusatz : []).forEach((z) => { row.zusatz[z.id] = { on: z.on !== false, stunden: z.stunden, menge: z.menge, km: z.km, ids: z.ids }; });
   return row;
 };
-// Multi-Geräte-Erfassung (Picker + Verfügbarkeit + Zeit-/Zusatzwahl + „Weiteres Gerät“) – kontrolliert über rows/activeIdx.
-window.GeraeteErfassung = function GeraeteErfassung({ store, F, rows, setRows, activeIdx, setActiveIdx }) {
-  const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
+// Multi-Geräte-Erfassung als Kachel-Liste: alle Geräte eingeklappt, Klick → bearbeiten (Draft),
+// ✓ übernimmt / ✗ verwirft. Neues Gerät öffnet sich mit Geräteauswahl. Kacheln verschiebbar.
+window.GeraeteErfassung = function GeraeteErfassung({ store, F, rows, setRows }) {
+  // Aktiv (aufgeklappt) ist standardmäßig nur eine noch geräte­lose Karte; sonst alles eingeklappt.
+  const [activeIdx, setActiveIdx] = anfS(() => (rows || []).findIndex((r) => !r.geraetId));
+  const newIdx = React.useRef((rows || []).findIndex((r) => !r.geraetId));
+  const commit = (i, draft) => { setRows((rs) => rs.map((r, j) => j === i ? draft : r)); newIdx.current = -1; setActiveIdx(-1); };
+  const cancel = (i) => { if (i === newIdx.current) { setRows((rs) => rs.filter((_, j) => j !== i)); newIdx.current = -1; } setActiveIdx(-1); };
+  const remove = (i) => { setRows((rs) => rs.filter((_, j) => j !== i)); if (newIdx.current === i) newIdx.current = -1; setActiveIdx((a) => a === i ? -1 : (a > i ? a - 1 : a)); };
+  const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= rows.length) return; setRows((rs) => { const c = rs.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; }); };
+  const add = () => { const ni = rows.length; setRows((rs) => [...rs, { ...LEER_ROW(), geraetId: '' }]); newIdx.current = ni; setActiveIdx(ni); };
   return (
-    <div className="stack" style={{ gap: 14 }}>
-      {rows.map((r, i) => <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} expanded={i === activeIdx} onExpand={() => setActiveIdx(i)} onChange={(p) => setRow(i, p)} onRemove={() => { setRows((rs) => rs.filter((_, j) => j !== i)); setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(i, rows.length - 2) : a)); }} />)}
-      <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setRows((rs) => [...rs, LEER_ROW()]); setActiveIdx(rows.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
+    <div className="stack" style={{ gap: 10 }}>
+      {rows.map((r, i) => (
+        <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length}
+          expanded={i === activeIdx}
+          onExpand={() => setActiveIdx(i)}
+          onCommit={(d) => commit(i, d)}
+          onCancel={() => cancel(i)}
+          onRemove={() => remove(i)}
+          canReorder onMoveUp={() => move(i, -1)} onMoveDown={() => move(i, 1)} />
+      ))}
+      <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={add} style={{ alignSelf: 'flex-start' }}>Gerät hinzufügen</window.UI.Btn>
     </div>
   );
 };
