@@ -421,7 +421,18 @@ function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, 
       <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Gerät</div>
       <window.UI.Select value={r.geraetId} onChange={(e) => selectDev(e.target.value)}>
         <option value="">— Gerät wählen —</option>
-        {vermietbar.map((gg) => { const [pv, pe] = preisVorschau(gg); return <option key={gg.id} value={gg.id}>{gg.name} · {pv} {pe}</option>; })}
+        {(() => {
+          const KAT_LBL = { Maschine: 'Maschinen', Transport: 'Transport', Anbau: 'Anbaugeräte' };
+          const order = ['Maschine', 'Transport', 'Anbau'];
+          const byKat = {};
+          vermietbar.forEach((gg) => { const k = gg.kat || 'Sonstige'; (byKat[k] = byKat[k] || []).push(gg); });
+          const kats = order.filter((k) => byKat[k]).concat(Object.keys(byKat).filter((k) => order.indexOf(k) < 0));
+          return kats.map((k) => (
+            <optgroup key={k} label={KAT_LBL[k] || k}>
+              {byKat[k].map((gg) => { const [pv, pe] = preisVorschau(gg); return <option key={gg.id} value={gg.id}>{gg.name} · {pv} {pe}</option>; })}
+            </optgroup>
+          ));
+        })()}
       </window.UI.Select>
       {r.geraetId && g && g.name && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
