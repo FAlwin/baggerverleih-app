@@ -17,6 +17,35 @@ Standalone-HTML mit in-browser Babel-Kompilierung – das ist der Ausgangspunkt,
 
 ---
 
+## Runde 7 (Juni 2026) — wichtigste Änderungen (hier zuerst lesen)
+
+- **Vereinheitlichter Beleg-Editor (`screen-rechnung-neu.jsx`):** Angebot, Rechnung UND Mietvertrag werden
+  erstellt **und** bearbeitet im selben „Kachel-Flow" wie die Anfrage. Geräte erscheinen als
+  zusammengeklappte, **verschiebbare Kacheln** (Name · Zeitraum · Preis); Klick/Stift klappt auf →
+  Draft-Bearbeitung, **✓ übernimmt** / **✗ verwirft**. Geräte werden über ein **Dropdown** gewählt
+  (gruppiert nach Kategorie), bereits gewählte sind deaktiviert. Die Kacheln **sind** die Positionen
+  (`positionenAusGeraete` inkl. `zeitraum`-Zeile im Beleg); zusätzlich `+ Freie Position`. „Bearbeiten"
+  im Auftrag/Vorschau/Mietvertrag öffnet denselben Editor vorbefüllt (`window.entryToRow`).
+- **Wiederverwendbare Bausteine** aus der Anfrage: `window.GeraeteErfassung` (Kachel-Liste mit
+  Hinzufügen/Reorder/✓✗), `GeraetBlock`, `LEER_ROW`, `rowOk`, `rowToEntry`, `entryToRow`, `blockBetrag`.
+- **Konfigurierbare Gerätekategorien:** `settings.kategorien` (geordnete Namensliste) – verwaltbar in der
+  Flotte („Kategorien verwalten": hinzufügen/umbenennen/sortieren/löschen). Steuert die Gruppierung in
+  Flotte **und** Geräte-Dropdown. **Reine Anzeige** – die Vermietbarkeit ist davon entkoppelt: `vermietbar`
+  wird beim Laden je Gerät explizit festgeschrieben (`normalizeFlotte`), `istVermietbar` nutzt dieses Feld.
+  „Anbau"-Sonderlogik ersetzt durch `istVermietbar` (echteGeraete) bzw. „alle anderen Geräte" (Löffel-Auswahl).
+- **Anfragen-Inbox:** Standardfilter **„Aktiv"** (neu + in Bearbeitung); Tabs Aktiv/Erledigt/Abgelehnt/Alle.
+  Annehmen ist **rückgängig** (Snapshot-Toast) + optionales Info-Fenster (WhatsApp/E-Mail) an den Kunden.
+  Weitere Undo-Knöpfe: Angebot→Rechnung, „gebucht", „Im Einsatz", „als bezahlt", „Mahnung".
+- **Globale „Verlauf"-Seite entfernt** – die Verlaufs-**Timeline pro Auftrag** bleibt (`db.verlauf`, `withLog`).
+- **Kalender:** Buchen läuft NICHT mehr über die Monatsansicht (Desktop + Mobil; mobile Tages-Agenda nur
+  Ansicht). Buchen bleibt in der **Wochen-Plantafel** (Gerät × Tag). Die **mobile Wochenansicht nutzt jetzt
+  dieselbe Plantafel wie der PC**, horizontal scrollbar.
+- **Validierung** in `contact.html` UND interner Anfrage-Maske (E-Mail/Telefon/Adresse). **Mobiler Drawer**
+  (`UI.Modal`) mit `dvh` + Safe-Area (Ziehgriff/X/Footer erreichbar). **Dashboard-Karte** mobil: robustes
+  `invalidateSize` + Karten-Container `zIndex:0` (Zoom-Controls stanzen nicht mehr über Header/Nav).
+
+---
+
 ## Ziel-Architektur
 
 ```
@@ -126,10 +155,10 @@ feature/xyz → Entwicklungsbranch (hier arbeiten, hier testen)
 - Einnahmenübersicht nach Monat
 - Auswertungen für Steuererklärung (Kleinunternehmer § 19 UStG)
 
-### 10. Verlauf (`screen-auftraege.jsx` → `window.Screens.verlauf`)
-- **Globaler Aktivitäts-Log**: chronologische Liste aller Vorgänge (Anfrage erfasst, Auftrag angelegt, Angebot/Rechnung erstellt & versendet, Mietvertrag unterschrieben, Status-Übergänge, Rückgabe, bezahlt) mit Zeitstempel + Link zum Auftrag.
-- Zusätzlich **Verlaufs-Timeline je Auftrag** (`window.VerlaufTimeline`) in der Auftrag-Detailansicht.
-- Quelle: `db.verlauf[]`, vom Store via `withLog()` bei Mutationen gefüllt.
+### 10. Verlauf (nur noch **pro Auftrag**)
+- Die frühere **globale** Verlauf-Seite wurde in Runde 7 entfernt (wurde mit der Zeit unübersichtlich).
+- Es bleibt die **Verlaufs-Timeline je Auftrag** (`window.VerlaufTimeline`) in der Auftrag-Detailansicht.
+- Quelle weiterhin: `db.verlauf[]`, vom Store via `withLog()` bei Mutationen gefüllt (nach `auftragId` gefiltert).
 
 ---
 
@@ -157,7 +186,8 @@ BUCHUNGEN     // id, datum, art (e|a), kategorie, text, betrag
 ANFRAGEN      // id, datum, name, phone, email, ort, nachricht, status (neu|in-bearbeitung|erledigt|abgelehnt),
               //   geraete[]{geraetId,von,bis,vonZeit,bisZeit,einheit,dauer,zusatz[],preis}  ← MEHRGERÄTE; primäre Felder gespiegelt; preisSchaetzung
 VERLAUF       // Aktivitäts-Log (chronologisch): {id, ts (ISO), typ, text, auftragId?} – Store schreibt bei Mutationen mit (withLog)
-SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So), nummern{}, versandTexte
+SETTINGS      // zahlungszielTage, angebotGueltigTage, geschaeftszeitVon/Bis, mietWochentage[7] (0=So),
+              //   kategorien[] (frei konfigurierbare Gerätekategorien, Reihenfolge = Gruppierung), nummern{}, versandTexte
 ```
 
 **Auftrag-Lebenszyklus (`AUFTRAG_FLOW`):** `anfrage → angebot → reserviert → einsatz → abgeschlossen → abgerechnet → bezahlt`
