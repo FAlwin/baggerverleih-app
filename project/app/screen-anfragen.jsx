@@ -376,7 +376,7 @@ function GeraetBlock({ store, F, row, idx, total, onChange, onRemove, expanded =
   };
 
   const chip = (label, onClick, on) => (
-    <button type="button" onClick={onClick} style={{ padding: '6px 11px', borderRadius: 999, fontSize: 12.5, fontFamily: 'inherit', cursor: 'pointer', border: '1px solid ' + (on ? 'var(--ink)' : 'var(--line-2)'), background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{label}</button>
+    <button key={label} type="button" onClick={onClick} style={{ padding: '6px 11px', borderRadius: 999, fontSize: 12.5, fontFamily: 'inherit', cursor: 'pointer', border: '1px solid ' + (on ? 'var(--ink)' : 'var(--line-2)'), background: on ? 'var(--ink)' : 'var(--paper)', color: on ? '#fff' : 'var(--ink)', fontWeight: 600 }}>{label}</button>
   );
 
   // Zusammenfassung des gewählten Zeitraums (für die eingeklappte Kachel)
