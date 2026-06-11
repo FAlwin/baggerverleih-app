@@ -44,21 +44,33 @@ function GeraeteStandort({ store, nav }) {
     if (!window.L || !mapRef.current || mapObj.current) return;
     const el = mapRef.current;
     const map = window.L.map(el, { scrollWheelZoom: false }).setView([50.83, 7.21], 10);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
     mapObj.current = map;
     // Standalone-PWA/Safari: der Karten-Container bekommt seine Höhe oft erst nach mehreren Frames.
-    // Ein einzelnes invalidateSize verpasst das → graue Karte + verrutschte Zoom-Controls.
-    // Darum mehrfach (rAF + gestaffelte Timer) UND bei jeder Größenänderung des Containers neu vermessen.
+    // Ein einzelnes invalidateSize verpasst das → graue Karte. Darum mehrfach (rAF + gestaffelte Timer),
+    // bei Größenänderung, beim Sichtbarwerden (Tab-Wechsel) und beim Wiederherstellen aus dem Safari-
+    // Back-/Forward-Cache (pageshow). „heal" stößt zudem graue (nicht geladene) Kacheln neu an.
     const fix = () => { try { map.invalidateSize(false); } catch (e) {} };
+    const heal = () => {
+      try {
+        map.invalidateSize(false);
+        if (el.querySelectorAll('.leaflet-tile-loaded').length === 0) map.setView(map.getCenter(), map.getZoom(), { animate: false });
+      } catch (e) {}
+    };
     requestAnimationFrame(fix);
-    const timers = [80, 300, 700, 1200].map((ms) => setTimeout(fix, ms));
+    const timers = [80, 300, 700, 1200, 2000].map((ms) => setTimeout(heal, ms));
     let ro;
     try { ro = new ResizeObserver(fix); ro.observe(el); } catch (e) {}
+    const onVis = () => { if (document.visibilityState === 'visible') heal(); };
     window.addEventListener('resize', fix);
+    window.addEventListener('pageshow', heal);
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       timers.forEach(clearTimeout);
       try { ro && ro.disconnect(); } catch (e) {}
       window.removeEventListener('resize', fix);
+      window.removeEventListener('pageshow', heal);
+      document.removeEventListener('visibilitychange', onVis);
       try { map.remove(); } catch (e) {}
       mapObj.current = null;
     };
