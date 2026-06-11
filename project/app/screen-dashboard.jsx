@@ -117,7 +117,10 @@ function GeraeteStandort({ store, nav }) {
           <Icon name="width" size={14} /> Vollbild
         </button>
       </div>
-      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative' }}>
+      {/* zIndex:0 macht den Karten-Container zu einem eigenen Stacking-Context: die Leaflet-Zoom-Controls
+          (z-index ~1000) bleiben dadurch im Container eingesperrt und stanzen sich nicht mehr über den
+          fixierten Header (z 30) oder die Bottom-Nav (z 100) beim Scrollen. */}
+      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative', zIndex: 0 }}>
         <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
         {full && (
           <>
