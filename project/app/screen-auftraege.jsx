@@ -940,7 +940,7 @@ function GeraetZeileModal({ auftrag, store, index, onClose }) {
   const toast = window.UI.useToast();
   const istNeu = index == null;
   const cur = !istNeu ? (auftrag.geraete || [])[index] : null;
-  const echteGeraete = (store.db.flotte || []).filter((g) => g.kat !== 'Anbau');
+  const echteGeraete = (store.db.flotte || []).filter((g) => window.istVermietbar(g));
   const [geraetId, setGeraetId] = auS(cur ? cur.geraetId : '');
   const [von, setVon] = auS(cur ? cur.von : (auftrag.von || store.today));
   const [bis, setBis] = auS(cur ? cur.bis : (auftrag.bis || auftrag.von || store.today));

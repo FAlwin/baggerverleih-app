@@ -88,11 +88,31 @@ function normalizeAnfragen(db) {
   return db;
 }
 
+// Flotte/Kategorien normalisieren: vermietbar je Gerät EXPLIZIT festschreiben (entkoppelt von der Kategorie,
+// damit Umbenennen/Verschieben von Kategorien die Vermietbarkeit nicht verändert) + Kategorienliste sicherstellen.
+function normalizeFlotte(db) {
+  const F = window.FRIESEN;
+  if (!db.settings) db.settings = {};
+  if (!Array.isArray(db.settings.kategorien) || !db.settings.kategorien.length) {
+    db.settings.kategorien = ((F.SETTINGS && F.SETTINGS.kategorien) || ['Maschine', 'Transport', 'Anbau']).slice();
+  }
+  if (Array.isArray(db.flotte)) {
+    db.flotte = db.flotte.map((g) => {
+      const out = { ...g };
+      if (out.vermietbar == null) out.vermietbar = window.istVermietbar(out);
+      return out;
+    });
+    // jede tatsächlich vergebene Kategorie in die Liste aufnehmen
+    db.flotte.forEach((g) => { if (g.kat && db.settings.kategorien.indexOf(g.kat) < 0) db.settings.kategorien.push(g.kat); });
+  }
+  return db;
+}
+
 function seedDB() {
   const F = window.FRIESEN;
   // tiefe Kopie der Seed-Daten
   const clone = (x) => JSON.parse(JSON.stringify(x));
-  return backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue({
+  return normalizeFlotte(backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue({
     company: clone(F.COMPANY),
     flotte: clone(F.FLOTTE),
     preisliste: clone(F.PREISLISTE),
@@ -105,7 +125,7 @@ function seedDB() {
     anfragen: clone(F.ANFRAGEN),
     settings: clone(F.SETTINGS),
     verlauf: [],
-  }))));
+  })))));
 }
 
 function loadDB() {
@@ -130,7 +150,7 @@ function loadDB() {
       db.settings = { ...JSON.parse(JSON.stringify(F.SETTINGS)), ...(db.settings || {}) };
       db.settings.nummern = { ...JSON.parse(JSON.stringify(F.SETTINGS.nummern)), ...(db.settings.nummern || {}) };
       if (!Array.isArray(db.settings.mietWochentage)) db.settings.mietWochentage = JSON.parse(JSON.stringify(F.SETTINGS.mietWochentage));
-      return backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue(db))));
+      return normalizeFlotte(backfillAuftragId(normalizeAnfragen(normalizeAuftraege(normalizeOverdue(db)))));
     }
   } catch (e) { /* ignore */ }
   return seedDB();
@@ -560,6 +580,21 @@ function StoreProvider({ children }) {
     // ---- Einstellungen ----
     updateCompany: (patch) => setDb((d) => ({ ...d, company: { ...d.company, ...patch } })),
     updateSettings: (patch) => setDb((d) => ({ ...d, settings: { ...d.settings, ...patch } })),
+    // ---- Gerätekategorien (frei konfigurierbar; reine Anzeige/Gruppierung) ----
+    setKategorien: (list) => setDb((d) => ({ ...d, settings: { ...d.settings, kategorien: list.slice() } })),
+    renameKategorie: (alt, neu) => setDb((d) => {
+      neu = (neu || '').trim(); if (!neu || alt === neu) return d;
+      const list = (d.settings.kategorien || []).map((k) => k === alt ? neu : k);
+      // Duplikate vermeiden (falls Zielname schon existiert)
+      const uniq = list.filter((k, i) => list.indexOf(k) === i);
+      return { ...d, settings: { ...d.settings, kategorien: uniq }, flotte: (d.flotte || []).map((g) => g.kat === alt ? { ...g, kat: neu } : g) };
+    }),
+    deleteKategorie: (name) => setDb((d) => {
+      const list = (d.settings.kategorien || []).filter((k) => k !== name);
+      const fallback = list[0] || 'Sonstiges';
+      const settings = { ...d.settings, kategorien: list.length ? list : [fallback] };
+      return { ...d, settings, flotte: (d.flotte || []).map((g) => g.kat === name ? { ...g, kat: fallback } : g) };
+    }),
 
     // ---- Undo: kompletten Zustand wiederherstellen (Snapshot vor destruktiver Aktion) ----
     restoreSnapshot: (snap) => { if (snap) { const { termine, ...rest } = snap; setDb(rest); } },
