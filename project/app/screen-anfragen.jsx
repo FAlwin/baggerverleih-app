@@ -620,6 +620,44 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved, prefill }) {
   );
 }
 
+/* =================== Wiederverwendbare Geräteerfassung (für den Beleg-Editor) ===================
+   Dieselben Bausteine wie „Neue Anfrage erfassen“ – damit Angebot/Rechnung/Mietvertrag
+   Multi-Gerät, Verfügbarkeitsprüfung, Stunden-/Staffel-Achse und Zusatzleistungen teilen. */
+window.GeraetBlock = GeraetBlock;
+window.LEER_ROW = LEER_ROW;
+// blockBetrag/tageInkl/isHourMode etc. sind bereits globale Funktionsdeklarationen (window.blockBetrag etc.) – nicht erneut zuweisen!
+// Gültigkeit einer Geräte-Zeile (Gerät + brauchbare Zeitauswahl)
+window.rowOk = (store, r) => { const g = store.geraetById(r.geraetId); if (!g) return false; if (isHourMode(g)) return r.modus === 'tage' ? !!r.von : (!!r.von && !!r.sel); return !!r.von && !!r.bis; };
+// Geräte-Zeile → Auftrags-/Beleg-Eintrag (geraete[]). Identisch zur Anfrage-Speicherung, ohne Konflikt-Alert.
+window.rowToEntry = (store, r) => {
+  const g = store.geraetById(r.geraetId), hour = isHourMode(g), tage = tageInkl(r.von, r.bis);
+  const entry = (hour && r.modus !== 'tage' && r.sel)
+    ? { geraetId: r.geraetId, von: r.von, bis: r.von, vonZeit: decToH(r.sel.start), bisZeit: decToH(r.sel.end), einheit: geraetModell(g) === 'staffel' ? ((bestTier(g, r.sel.end - r.sel.start) || {}).label || 'Stunden') : 'Stunden', dauer: r.sel.end - r.sel.start }
+    : { geraetId: r.geraetId, von: r.von, bis: r.bis || r.von, vonZeit: '07:00', bisZeit: '17:00', einheit: 'Tag', dauer: tage };
+  entry.zusatz = ((g && g.zusatz) || []).filter((z) => (r.zusatz || {})[z.id] && r.zusatz[z.id].on).map((z) => ({ id: z.id, art: z.art, label: z.label, betrag: zusatzBetrag(z, r.zusatz[z.id], tage), ...r.zusatz[z.id] }));
+  entry.preis = blockBetrag(store, r);
+  return entry;
+};
+// Beleg-Eintrag (geraete[]) → Geräte-Zeile (zum Vorbefüllen beim Bearbeiten)
+window.entryToRow = (store, e) => {
+  const g = store.geraetById(e.geraetId), hour = isHourMode(g);
+  const row = { ...LEER_ROW(), geraetId: e.geraetId, von: e.von || '', bis: e.bis || e.von || '', vonZeit: e.vonZeit || '07:00', bisZeit: e.bisZeit || '17:00', einheit: e.einheit || 'Tag', dauer: Number(e.dauer) || 1, gran: 1, sel: null, modus: hour ? 'tage' : 'stunde', zusatz: {} };
+  const istStd = hour && e.einheit && !/tag/i.test(e.einheit) && (!e.bis || e.von === e.bis) && e.vonZeit && e.bisZeit;
+  if (istStd) { row.modus = 'stunde'; row.sel = { start: hToDec(e.vonZeit), end: hToDec(e.bisZeit) }; row.bis = e.von; }
+  (Array.isArray(e.zusatz) ? e.zusatz : []).forEach((z) => { row.zusatz[z.id] = { on: z.on !== false, stunden: z.stunden, menge: z.menge, km: z.km, ids: z.ids }; });
+  return row;
+};
+// Multi-Geräte-Erfassung (Picker + Verfügbarkeit + Zeit-/Zusatzwahl + „Weiteres Gerät“) – kontrolliert über rows/activeIdx.
+window.GeraeteErfassung = function GeraeteErfassung({ store, F, rows, setRows, activeIdx, setActiveIdx }) {
+  const setRow = (i, patch) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
+  return (
+    <div className="stack" style={{ gap: 14 }}>
+      {rows.map((r, i) => <GeraetBlock key={i} store={store} F={F} row={r} idx={i} total={rows.length} expanded={i === activeIdx} onExpand={() => setActiveIdx(i)} onChange={(p) => setRow(i, p)} onRemove={() => { setRows((rs) => rs.filter((_, j) => j !== i)); setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(i, rows.length - 2) : a)); }} />)}
+      <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={() => { setRows((rs) => [...rs, LEER_ROW()]); setActiveIdx(rows.length); }} style={{ alignSelf: 'flex-start' }}>Weiteres Gerät</window.UI.Btn>
+    </div>
+  );
+};
+
 // Pill-Farbschlüssel je Anfrage-Status (window.Pill liest FRIESEN.STATUS)
 const anfPillKey = (s) => ({ neu: 'offen', 'in-bearbeitung': 'ueberfaellig', erledigt: 'bezahlt', abgelehnt: 'abgelehnt' }[s] || 'offen');
 
