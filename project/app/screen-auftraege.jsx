@@ -39,7 +39,16 @@ function positionenAusGeraete(a, store) {
     const menge = /stunden/i.test(tar.einheit)
       ? 1
       : (Number(ge.dauer) || (ge.von && ge.bis ? window.tageZwischen(ge.von, ge.bis) : 1) || 1);
-    const geraetPos = { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: tar.preis };
+    // Zeitraum als unauffällige Zusatzinfo der Geräteposition (im Beleg zweite Zeile unter der Beschreibung)
+    const F = window.FRIESEN;
+    let zeitraum = '';
+    if (F && ge.von) {
+      const std = /stunden|stunde/i.test(ge.einheit || '') && (!ge.bis || ge.bis === ge.von);
+      zeitraum = std
+        ? F.fmtDate(ge.von) + (ge.vonZeit && ge.bisZeit ? ' · ' + ge.vonZeit + '–' + ge.bisZeit : '')
+        : F.fmtDate(ge.von) + (ge.bis && ge.bis !== ge.von ? ' – ' + F.fmtDate(ge.bis) : '');
+    }
+    const geraetPos = { text: gg ? gg.name : ge.geraetId, einheit: tar.einheit, menge, preis: tar.preis, zeitraum };
     const zusatzPos = (Array.isArray(ge.zusatz) ? ge.zusatz : []).filter((z) => (z.preis || z.betrag)).map((z) => zusatzPosition(z, store));
     return [geraetPos, ...zusatzPos];
   });

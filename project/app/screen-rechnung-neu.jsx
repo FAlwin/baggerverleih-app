@@ -72,20 +72,27 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
     if (!pfPos.length) return [];
     const initialEntries = (pf && pf.geraete && pf.geraete.length) ? pf.geraete : [];
     const d0 = window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: initialEntries }, store) : [];
-    const key = (p) => (p.text || '') + '|' + (p.einheit || '') + '|' + (Number(p.menge) || 0) + '|' + (Number(p.preis) || 0);
+    const key = (p) => (p.text || '') + '|' + (Number(p.menge) || 0) + '|' + (Number(p.preis) || 0);
     const pool = {}; d0.forEach((p) => { const k = key(p); pool[k] = (pool[k] || 0) + 1; });
-    return pfPos.filter((p) => { const k = key(p); if (pool[k]) { pool[k]--; return false; } return true; });
+    const devNames = (store.db.flotte || []).map((g) => g.name).filter(Boolean);
+    const derivedTexts = new Set(d0.map((p) => p.text));
+    // „aus Geräten stammend" = exakte Übereinstimmung ODER Alt-Text, der mit einem Gerätenamen beginnt
+    // ODER eine Zusatzleistungs-Zeile. Solche Zeilen kommen aus den Kacheln → NICHT zusätzlich als manuell führen.
+    const isDeviceish = (p) => {
+      const k = key(p); if (pool[k]) { pool[k]--; return true; }
+      if (devNames.some((n) => p.text && p.text.indexOf(n) === 0)) return true;
+      if (derivedTexts.has(p.text)) return true;
+      return false;
+    };
+    return pfPos.filter((p) => !isDeviceish(p));
   };
   const [extraPos, setExtraPos] = nS(initExtra);
-  const anbauGeraete = nM(() => store.db.flotte.filter((g) => g.kat === 'Anbau'), [store.db.flotte]);
-  const addAnbau = (gid) => { const g = store.db.flotte.find((x) => x.id === gid); if (!g) return; const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0] || { einheit: 'inklusive', preis: 0 }; setExtraPos((a) => [...a, { text: g.name, einheit: tar.einheit, menge: 1, preis: tar.preis }]); };
-  const addService = (pid) => { const p = store.db.preisliste.find((x) => x.id === pid); if (!p) return; setExtraPos((a) => [...a, { text: p.geraet, einheit: p.einheit, menge: 1, preis: p.preis }]); };
   const addFree = () => setExtraPos((a) => [...a, { text: '', einheit: 'Pauschale', menge: 1, preis: 0 }]);
   const updExtra = (i, patch) => setExtraPos((a) => a.map((p, j) => j === i ? { ...p, ...patch } : p));
   const removeExtra = (i) => setExtraPos((a) => a.filter((_, j) => j !== i));
   const moveExtra = (i, dir) => setExtraPos((a) => { const j = i + dir; if (j < 0 || j >= a.length) return a; const c = a.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; });
 
-  const positionen = [...derived, ...extraPos].map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 }));
+  const positionen = [...derived, ...extraPos].map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0, ...(p.zeitraum ? { zeitraum: p.zeitraum } : {}) }));
   const total = positionen.reduce((a, p) => a + p.menge * p.preis, 0);
 
   // ----- Gültig bis (Angebot) -----
@@ -233,8 +240,8 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
                     <window.UI.Input value={p.einheit} onChange={(e) => updExtra(i, { einheit: e.target.value })} title="Einheit" style={{ padding: '7px 6px', fontSize: 12.5 }} />
                     <window.UI.Input type="number" value={p.preis} onChange={(e) => updExtra(i, { preis: e.target.value })} title="Einzelpreis €" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'right' }} />
                     <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                      <window.UI.IconBtn name="chevronD" size={12} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 24, height: 30, transform: 'rotate(180deg)' }} />
-                      <window.UI.IconBtn name="chevronD" size={12} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 24, height: 30 }} />
+                      <window.UI.IconBtn name="chevronD" size={13} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 26, height: 30, border: 'none', background: 'transparent', transform: 'rotate(180deg)' }} />
+                      <window.UI.IconBtn name="chevronD" size={13} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
                       <window.UI.IconBtn name="trash" size={14} onClick={() => removeExtra(i)} title="Entfernen" style={{ width: 26, height: 30 }} />
                     </div>
                   </div>
@@ -242,28 +249,9 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
               </div>
             )}
 
-            {/* Manuelle Zeile hinzufügen */}
-            <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {anbauGeraete.length > 0 && (
-                <div>
-                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Anbaugeräte &amp; Zubehör</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {anbauGeraete.map((g) => {
-                      const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0];
-                      return <button key={g.id} onClick={() => addAnbau(g.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>+ {g.name}{tar && tar.preis > 0 ? ' · ' + F.fmtEUR(tar.preis) : (tar && tar.einheit === 'inklusive' ? ' · inkl.' : '')}</button>;
-                    })}
-                  </div>
-                </div>
-              )}
-              <div style={anbauGeraete.length > 0 ? { borderTop: '1px solid var(--line)', paddingTop: 12 } : {}}>
-                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Sonstige Positionen</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
-                    <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>+ {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}</button>
-                  ))}
-                  <button onClick={addFree} style={{ fontSize: 12, padding: '5px 10px', border: '1px dashed var(--line)', borderRadius: 'var(--r)', background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'var(--muted)' }}>+ Freie Position</button>
-                </div>
-              </div>
+            {/* Freie Position (Sonderfälle wie Rabatt/individuelle Leistung). Geräte + Zusatzleistungen laufen über die Kacheln. */}
+            <div style={{ marginTop: 14 }}>
+              <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={addFree}>Freie Position</window.UI.Btn>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, padding: '12px 14px', background: 'var(--ink)', borderRadius: 'var(--r)', color: '#fff' }}>

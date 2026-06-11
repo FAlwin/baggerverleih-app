@@ -398,9 +398,9 @@ function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, 
     return (
       <div onClick={onExpand} style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1.5px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '11px 13px', background: 'var(--paper)', cursor: 'pointer' }}>
         {canReorder && total > 1 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: '0 0 auto' }}>
-            <window.UI.IconBtn name="chevronD" size={12} title="nach oben" disabled={idx === 0} onClick={(e) => { e.stopPropagation(); onMoveUp && onMoveUp(); }} style={{ width: 24, height: 19, transform: 'rotate(180deg)' }} />
-            <window.UI.IconBtn name="chevronD" size={12} title="nach unten" disabled={idx === total - 1} onClick={(e) => { e.stopPropagation(); onMoveDown && onMoveDown(); }} style={{ width: 24, height: 19 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, flex: '0 0 auto' }}>
+            <window.UI.IconBtn name="chevronD" size={13} title="nach oben" disabled={idx === 0} onClick={(e) => { e.stopPropagation(); onMoveUp && onMoveUp(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent', transform: 'rotate(180deg)' }} />
+            <window.UI.IconBtn name="chevronD" size={13} title="nach unten" disabled={idx === total - 1} onClick={(e) => { e.stopPropagation(); onMoveDown && onMoveDown(); }} style={{ width: 26, height: 22, border: 'none', background: 'transparent' }} />
           </div>
         )}
         <window.GeraetBadge geraet={g} size={34} />
@@ -417,27 +417,22 @@ function GeraetBlock({ store, F, row, idx, total, onCommit, onCancel, onRemove, 
 
   return (
     <div style={{ border: '1.5px solid var(--ink)', boxShadow: '0 0 0 1.5px var(--ink)', borderRadius: 'var(--r-lg)', padding: 14, background: 'var(--paper)' }}>
-      {/* Geräte-Picker */}
-      <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Gerät wählen</div>
-      <div className="stack" style={{ gap: 9 }}>
-        {vermietbar.map((gg) => {
-          const on = gg.id === r.geraetId; const [pv, pe] = preisVorschau(gg);
-          return (
-            <div key={gg.id} onClick={() => selectDev(gg.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 'var(--r-lg)', cursor: 'pointer', border: '1.5px solid ' + (on ? 'var(--ink)' : 'var(--line)'), boxShadow: on ? '0 0 0 1.5px var(--ink)' : 'none', background: 'var(--paper)' }}>
-              <window.GeraetBadge geraet={gg} size={42} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-.01em' }}>{gg.name}</div>
-                {gg.detail && <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gg.detail}</div>}
-                <div style={{ marginTop: 4 }}>{modellChip(gg)}</div>
-              </div>
-              <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
-                <div className="num" style={{ fontSize: 14, fontWeight: 700 }}>{pv}</div>
-                <div style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--muted)' }}>{pe}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* Geräte-Picker (kompaktes Dropdown) */}
+      <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 8 }}>Gerät</div>
+      <window.UI.Select value={r.geraetId} onChange={(e) => selectDev(e.target.value)}>
+        <option value="">— Gerät wählen —</option>
+        {vermietbar.map((gg) => { const [pv, pe] = preisVorschau(gg); return <option key={gg.id} value={gg.id}>{gg.name} · {pv} {pe}</option>; })}
+      </window.UI.Select>
+      {r.geraetId && g && g.name && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+          <window.GeraetBadge geraet={g} size={34} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</div>
+            {g.detail && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.detail}</div>}
+          </div>
+          <div style={{ flex: '0 0 auto' }}>{modellChip(g)}</div>
+        </div>
+      )}
 
       {/* Erst nach Geräteauswahl: Zeitraum + Zusatzleistungen */}
       {r.geraetId && (<>
