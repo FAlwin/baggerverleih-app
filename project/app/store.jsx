@@ -521,6 +521,12 @@ function StoreProvider({ children }) {
       return { ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...stamp } : a), verlauf: withLog(d, 'angebot', txt, a0.auftragId) };
     }),
     updateAngebot: (id, patch) => setDb((d) => ({ ...d, angebote: d.angebote.map((a) => a.id === id ? { ...a, ...patch } : a) })),
+    // Geräte eines Auftrags ersetzen (z. B. beim Bearbeiten eines Belegs) – Primärfelder auf geraete[0] spiegeln.
+    setAuftragGeraete: (auftragId, geraete) => setDb((d) => ({ ...d, auftraege: d.auftraege.map((a) => {
+      if (a.id !== auftragId || !Array.isArray(geraete) || !geraete.length) return a;
+      const g0 = geraete[0];
+      return { ...a, geraete, geraetId: g0.geraetId || a.geraetId, von: g0.von || a.von, bis: g0.bis || a.bis, vonZeit: g0.vonZeit || a.vonZeit, bisZeit: g0.bisZeit || a.bisZeit };
+    }) })),
     addTerminFromAngebot: (angebotId, geraetId, kundeId, von, bis, vonZeit, bisZeit, ort) => {
       setDb((d) => {
         const kr = kreis(d, 'auftrag'); const newId = nextId(kr.prefix, d.auftraege, kr.start);

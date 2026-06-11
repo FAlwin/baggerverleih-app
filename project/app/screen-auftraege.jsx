@@ -11,7 +11,12 @@ function auZeitraum(F, a) {
 
 // Eine Zusatzleistung (aus der Anfrage durchgereicht) in eine Rechnungs-/Angebotsposition wandeln.
 function zusatzPosition(z, store) {
-  if (z.art === 'stunde') return { text: z.label || 'Mit Fahrer', einheit: 'Stunde', menge: Number(z.stunden != null ? z.stunden : 1) || 1, preis: z.preis || 0 };
+  if (z.art === 'stunde') {
+    const menge = Number(z.stunden != null ? z.stunden : 1) || 1;
+    // Stückpreis: bevorzugt z.preis; im durchgereichten Eintrag ist nur der Gesamt-betrag vorhanden → Stückpreis daraus ableiten.
+    const preis = z.preis != null ? z.preis : (z.betrag ? Math.round((z.betrag / menge) * 100) / 100 : 0);
+    return { text: z.label || 'Mit Fahrer', einheit: 'Stunde', menge, preis };
+  }
   if (z.art === 'auswahl') {
     const namen = (z.ids || []).map((id) => (store.geraetById(id) || {}).name).filter(Boolean).join(', ');
     return { text: (z.label || 'Zubehör') + (namen ? ' (' + namen + ')' : ''), einheit: 'Pauschale', menge: 1, preis: z.betrag || 0 };
@@ -321,6 +326,13 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
   const laeuft = laeuftGerade(a, store.today);
   const prefill = { geraetId: a.geraetId, von: a.von, bis: a.bis, ort: a.ort, positionen: positionenAusGeraete(a, store) };
 
+  // Beleg im vereinheitlichten Editor (rechnung-neu) bearbeiten – gleiches Fenster wie „Neues Angebot",
+  // vorbefüllt mit Geräten (für Verfügbarkeit/Zusatzleistungen) + bestehenden Positionen.
+  const editBeleg = (which) => {
+    if (which === 'angebot' && angebot) nav('rechnung-neu', { editKind: 'angebot', editId: angebot.id, editAuftragId: a.id, kundeId: a.kundeId, prefill: { kundeId: a.kundeId, belegId: angebot.id, positionen: angebot.positionen, geraete: a.geraete, von: angebot.von || a.von, bis: angebot.bis || a.bis, ort: angebot.ort || a.ort, gueltigBis: angebot.gueltigBis } });
+    else if (which === 'rechnung' && rechnung) nav('rechnung-neu', { editKind: 'rechnung', editId: rechnung.id, editAuftragId: a.id, kundeId: a.kundeId, prefill: { kundeId: a.kundeId, belegId: rechnung.id, positionen: rechnung.positionen, geraete: a.geraete, von: a.von, bis: a.bis, ort: a.ort, faellig: rechnung.faellig, datum: rechnung.datum } });
+  };
+
   // Rechnung erstellen (aus Angebot übernehmen, sonst leeres Formular – beides verknüpft den Auftrag)
   const rechnungSchreiben = () => {
     if (angebot) { const snap = store.snapshot(); const rid = store.convertAngebot(angebot.id); toast('Rechnung ' + rid + ' erstellt', { undo: () => store.restoreSnapshot(snap) }); nav('rechnung', { id: rid }); }
@@ -480,7 +492,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                     {(angebotStatus === 'offen' || angebotStatus === 'versendet') &&
                       <window.UI.Btn size="sm" icon="arrowRight" onClick={() => setVersendKind('angebot')}>{angebot.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>}
                     {!angebot.gesperrt
-                      ? <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditOpen(true)}>Bearbeiten</window.UI.Btn>
+                      ? <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => editBeleg('angebot')}>Bearbeiten</window.UI.Btn>
                       : <span style={{ fontSize: 11.5, color: 'var(--muted-2)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} /> Gesperrt – Vertrag unterschrieben</span>}
                   </div>
                 </>
@@ -524,7 +536,7 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
                   {rechnung.versendetAm && <div style={{ fontSize: 11.5, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} color="var(--ok)" /> Versendet {F.fmtDate(rechnung.versendetAm)}{rechnung.versendetUeber ? ' · ' + rechnung.versendetUeber : ''}</div>}
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                     {/* Bearbeiten nur solange die Rechnung nicht bezahlt UND nicht versendet ist */}
-                    {rechnung.status !== 'bezahlt' && !rechnung.versendetAm && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => setEditRechnungOpen(true)}>Bearbeiten</window.UI.Btn>}
+                    {rechnung.status !== 'bezahlt' && !rechnung.versendetAm && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => editBeleg('rechnung')}>Bearbeiten</window.UI.Btn>}
                     <window.UI.Btn size="sm" variant="ghost" icon="arrowRight" onClick={() => setVersendKind('rechnung')}>{rechnung.versendetAm ? 'Erneut senden' : 'Versenden'}</window.UI.Btn>
                     {rechnung.status !== 'bezahlt' && <window.UI.Btn size="sm" variant="okghost" icon="check" onClick={() => { const snap = store.snapshot(); store.markPaid(rechnung.id); if (a.status === 'abgerechnet') store.setAuftragStatus(a.id, 'bezahlt'); toast('Als bezahlt markiert', { undo: () => store.restoreSnapshot(snap) }); }}>Als bezahlt</window.UI.Btn>}
                     {/* Mahnung nur solange nicht bezahlt – schließt sich gegenseitig aus */}
@@ -583,24 +595,15 @@ window.Screens.auftrag = function AuftragDetail({ nav, params, mobile, onMenu, P
             onClose={() => setVersendKind(null)} />
         );
       })()}
-      {editOpen && angebot && (
-        <window.EditAngebotModal angebot={angebot}
-          onSave={(patch) => { const wasAb = angebot.gueltigBis < store.today; store.updateAngebot(angebot.id, { ...patch, ...(wasAb && patch.gueltigBis >= store.today ? { status: 'offen' } : {}) }); toast('Angebot aktualisiert'); setEditOpen(false); }}
-          onClose={() => setEditOpen(false)} />
-      )}
-      {mvOpen && <MietvertragModal auftrag={a} store={store} onClose={() => setMvOpen(false)} />}
+      {/* Angebot/Rechnung werden im vereinheitlichten Editor (rechnung-neu) bearbeitet – siehe editBeleg(). */}
+      {mvOpen && <MietvertragModal auftrag={a} store={store} nav={nav} onClose={() => setMvOpen(false)} />}
       {geraetModal && <GeraetZeileModal auftrag={a} store={store} index={geraetModal.index} onClose={() => setGeraetModal(null)} />}
-      {editRechnungOpen && rechnung && (
-        <EditRechnungModal rechnung={rechnung} store={store}
-          onSave={(patch) => { store.updateRechnung(rechnung.id, patch); toast('Rechnung aktualisiert'); setEditRechnungOpen(false); }}
-          onClose={() => setEditRechnungOpen(false)} />
-      )}
       {rueckOpen && <RueckgabeModal auftrag={a} rechnung={rechnung} store={store} nav={nav} onClose={() => setRueckOpen(false)} />}
       {verlOpen && <VerlaengernModal auftrag={a} store={store} onClose={() => setVerlOpen(false)} />}
       {previewKind && <DocPreviewModal kind={previewKind} auftrag={a} store={store}
         onEdit={previewKind === 'angebot'
-          ? (angebot && !angebot.gesperrt ? () => { setPreviewKind(null); setEditOpen(true); } : null)
-          : (rechnung && rechnung.status !== 'bezahlt' && !rechnung.versendetAm ? () => { setPreviewKind(null); setEditRechnungOpen(true); } : null)}
+          ? (angebot && !angebot.gesperrt ? () => { setPreviewKind(null); editBeleg('angebot'); } : null)
+          : (rechnung && rechnung.status !== 'bezahlt' && !rechnung.versendetAm ? () => { setPreviewKind(null); editBeleg('rechnung'); } : null)}
         onClose={() => setPreviewKind(null)} />}
     </>
   );
@@ -808,7 +811,7 @@ function DocPreviewModal({ kind, auftrag, store, onClose, onEdit }) {
 }
 
 // ---- Mietvertrag-Modal (erstklassiger Beleg des Auftrags – schnell bei der Übergabe) ----
-function MietvertragModal({ auftrag, store, onClose }) {
+function MietvertragModal({ auftrag, store, nav, onClose }) {
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
   const g = store.geraetById(auftrag.geraetId);
@@ -871,7 +874,7 @@ function MietvertragModal({ auftrag, store, onClose }) {
             <div><b style={{ color: 'var(--ink)' }}>{g?.name}</b> · {k.name}</div>
             <div>Mietzeit: <b style={{ color: 'var(--ink)' }}>{mietzeit}</b></div>
           </div>
-          {!gesperrt && !edit && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={openEdit}>Bearbeiten</window.UI.Btn>}
+          {!gesperrt && nav && <window.UI.Btn size="sm" variant="ghost" icon="edit" onClick={() => { onClose(); nav('rechnung-neu', { editKind: 'mietvertrag', editAuftragId: auftrag.id, kundeId: auftrag.kundeId, prefill: { kundeId: auftrag.kundeId, belegId: auftrag.id, positionen: effPositionen, geraete: auftrag.geraete, von: effVon, bis: effBis, ort: auftrag.ort } }); }}>Bearbeiten</window.UI.Btn>}
         </div>
         {edit && (
           <div className="stack" style={{ gap: 12, padding: 12, background: 'var(--paper-3)', borderRadius: 'var(--r)' }}>
