@@ -45,9 +45,10 @@ function GeraetModalForm({ init, onSave, onClose }) {
   const store = window.useStore();
   const MODELLE = F.ABRECHNUNG_MODELLE;
   const ARTEN = F.ZUSATZ_ARTEN;
-  // wählbare Anbaugeräte für die Auswahl-Zusatzart (z. B. Löffel) – das Gerät selbst ausgenommen
-  const anbauGeraete = (store.db.flotte || []).filter((x) => x.kat === 'Anbau' && x.id !== (init && init.id));
-  const [g, setG] = flS({ kuerzel:'', farbe:'#F7C72A', kat:'Maschine', modell:'tag', tarif:[], zusatz:[], foto:null, ...init });
+  // wählbare Geräte für die Auswahl-Zusatzart (z. B. Löffel) – das Gerät selbst ausgenommen
+  const anbauGeraete = (store.db.flotte || []).filter((x) => x.id !== (init && init.id));
+  const KATS = (store.db.settings && store.db.settings.kategorien) || ['Maschine', 'Transport', 'Anbau'];
+  const [g, setG] = flS({ kuerzel:'', farbe:'#F7C72A', kat: KATS[0] || 'Maschine', modell:'tag', tarif:[], zusatz:[], foto:null, ...init });
   const fileRef = flR();
   const setT = (i, patch) => setG((x) => ({ ...x, tarif: x.tarif.map((r, j) => j === i ? { ...r, ...patch } : r) }));
   const addRow = () => setG((x) => ({ ...x, tarif: [...x.tarif, { einheit: '', preis: 0 }] }));
@@ -279,16 +280,18 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
   const [editPL, setEditPL] = flS(null);       // preisliste item being edited
   const [newPL, setNewPL] = flS(false);
   const [plDraft, setPlDraft] = flS({ geraet: '', einheit: '', preis: 0 });
+  const [katMgr, setKatMgr] = flS(false);
   const today = store.today;
   const bookedToday = (gid) => store.db.termine.find((t) => { const gs = (Array.isArray(t.geraete) && t.geraete.length) ? t.geraete : [t]; return gs.some((g) => g.geraetId === gid && today >= g.von && today <= g.bis); });
 
   const save = (g) => { g.id ? store.updateGeraet(g.id, g) : store.addGeraet(g); toast('Gespeichert'); setEditing(null); setAddNew(false); };
 
-  const groups = [
-    { label: 'Maschinen & Transport', kats: ['Maschine', 'Transport'] },
-    { label: 'Anbaugeräte & Zubehör', kats: ['Anbau'] },
-    { label: 'Sonstiges', kats: ['Elektro', 'Sonstiges'] },
-  ];
+  // Gruppen aus den konfigurierbaren Kategorien (Reihenfolge = Anzeige); Geräte ohne bekannte Kategorie hinten.
+  const kategorien = (store.db.settings && store.db.settings.kategorien) || ['Maschine', 'Transport', 'Anbau'];
+  const groups = kategorien.map((k) => ({ label: k, kats: [k] }));
+  const known = new Set(kategorien);
+  const ungrouped = (store.db.flotte || []).filter((g) => g.kat && !known.has(g.kat));
+  if (ungrouped.length) groups.push({ label: 'Ohne Kategorie', kats: Array.from(new Set(ungrouped.map((g) => g.kat))) });
 
   const DevCard = ({ g }) => {
     const b = bookedToday(g.id);
@@ -367,6 +370,9 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
         <window.UI.Btn icon="plus" onClick={() => setAddNew(true)}>{mobile ? 'Gerät' : 'Neues Gerät'}</window.UI.Btn>
       </PageHeader>
       <div className="content-pad stack" style={{ gap: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -12 }}>
+          <window.UI.Btn size="sm" variant="ghost" icon="settings" onClick={() => setKatMgr(true)}>Kategorien verwalten</window.UI.Btn>
+        </div>
         {groups.map((grp) => {
           const items = store.db.flotte.filter((g) => grp.kats.includes(g.kat));
           if (!items.length) return null;
@@ -432,6 +438,45 @@ window.Screens.flotte = function Flotte({ nav, mobile, onMenu, PageHeader }) {
         <GeraetModalForm init={editing || null} onSave={save} onClose={() => { setEditing(null); setAddNew(false); }} />
       )}
       {doku && <GeraetDokuModal geraet={store.geraetById(doku.id) || doku} store={store} onClose={() => setDoku(null)} />}
+      {katMgr && <KategorienModal store={store} onClose={() => setKatMgr(false)} />}
     </>
   );
 };
+
+// ---- Kategorien verwalten (umbenennen / sortieren / hinzufügen / löschen) ----
+function KategorienModal({ store, onClose }) {
+  const toast = window.UI.useToast();
+  const list = (store.db.settings && store.db.settings.kategorien) || [];
+  const [neu, setNeu] = flS('');
+  const count = (k) => (store.db.flotte || []).filter((g) => g.kat === k).length;
+  const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= list.length) return; const c = list.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; store.setKategorien(c); };
+  const rename = (alt) => { const neuN = window.prompt('Kategorie umbenennen:', alt); if (neuN && neuN.trim() && neuN.trim() !== alt) { store.renameKategorie(alt, neuN.trim()); toast('Kategorie umbenannt'); } };
+  const del = (k) => { const n = count(k); if (window.confirm(n ? `„${k}" wird gelöscht. ${n} Gerät(e) wandern in die erste Kategorie.` : `Kategorie „${k}" löschen?`)) { store.deleteKategorie(k); toast('Kategorie gelöscht'); } };
+  const add = () => { const n = (neu || '').trim(); if (!n) return; if (list.indexOf(n) >= 0) { toast('Gibt es schon'); return; } store.setKategorien([...list, n]); setNeu(''); };
+  return (
+    <window.UI.Modal open title="Kategorien verwalten" onClose={onClose} width={460}
+      footer={<window.UI.Btn variant="ghost" onClick={onClose}>Fertig</window.UI.Btn>}>
+      <div className="stack" style={{ gap: 10 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Reihenfolge bestimmt die Gruppierung in der Flotte und im Geräte-Dropdown. Umbenennen wirkt auf alle Geräte der Kategorie.</div>
+        {list.map((k, i) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <window.UI.IconBtn name="arrowUp" size={14} title="nach oben" disabled={i === 0} onClick={() => move(i, -1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent' }} />
+              <window.UI.IconBtn name="arrowDown" size={14} title="nach unten" disabled={i === list.length - 1} onClick={() => move(i, 1)} style={{ width: 26, height: 20, border: 'none', background: 'transparent' }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{k}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{count(k)} Gerät{count(k) !== 1 ? 'e' : ''}</div>
+            </div>
+            <window.UI.IconBtn name="edit" size={14} title="Umbenennen" onClick={() => rename(k)} style={{ width: 32, height: 32 }} />
+            <window.UI.IconBtn name="trash" size={14} title="Löschen" disabled={list.length <= 1} onClick={() => del(k)} style={{ width: 32, height: 32 }} />
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <window.UI.Input value={neu} onChange={(e) => setNeu(e.target.value)} placeholder="Neue Kategorie" onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ flex: 1 }} />
+          <window.UI.Btn icon="plus" onClick={add}>Hinzufügen</window.UI.Btn>
+        </div>
+      </div>
+    </window.UI.Modal>
+  );
+}

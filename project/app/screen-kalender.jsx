@@ -290,9 +290,8 @@ window.Screens = window.Screens || {};
                         {week.map((day, di) => {
                           const isToday = day === store.today;
                           return (
-                            <div key={di} onClick={() => { if (day) nav('anfragen', { neu: 1, von: day }); }}
-                              style={{ borderLeft: di > 0 ? '1px solid var(--paper-3)' : 'none', background: isToday ? 'var(--yellow-wash)' : day && isWeekend(day) ? 'var(--paper-2)' : 'transparent', cursor: day ? 'copy' : 'default', padding: '5px 8px' }}
-                              title={day ? 'Klicken, um zu buchen' : ''}>
+                            <div key={di}
+                              style={{ borderLeft: di > 0 ? '1px solid var(--paper-3)' : 'none', background: isToday ? 'var(--yellow-wash)' : day && isWeekend(day) ? 'var(--paper-2)' : 'transparent', padding: '5px 8px' }}>
                               {day ? <span className="mono" style={{ fontSize: 12.5, fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--yellow-deep)' : day < store.today ? 'var(--muted-2)' : 'var(--ink)' }}>{parseInt(day.slice(8), 10)}</span> : null}
                             </div>
                           );
@@ -590,7 +589,7 @@ window.Screens = window.Screens || {};
             </div>
           )}
           {mobile
-            ? (view === 'month' ? <MobileMonthView /> : <MobileWeekView />)
+            ? (view === 'month' ? <MobileMonthView /> : <WeekView />)
             : (view === 'month' ? <MonthView /> : <WeekView />)}
           {!mobile ? (
             <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--muted-2)' }}>
@@ -732,9 +731,9 @@ window.Screens = window.Screens || {};
           )}
         </UI.Modal>
 
-        {/* Tages-Agenda (Mobil): Tag antippen → Buchungen des Tages */}
+        {/* Tages-Agenda (Mobil): Tag antippen → Buchungen des Tages (nur Ansicht; Buchen läuft über die Wochenansicht/Anfrage) */}
         <UI.Modal open={!!daySheet} onClose={() => setDaySheet(null)} title={daySheet ? F.fmtDate(daySheet) : ''} width={420}
-          footer={<UI.Btn icon="plus" onClick={() => { const d = daySheet; setDaySheet(null); nav('anfragen', { neu: 1, von: d }); }}>Anfrage für diesen Tag</UI.Btn>}>
+          footer={<UI.Btn variant="ghost" onClick={() => setDaySheet(null)}>Schließen</UI.Btn>}>
           {daySheet && (() => {
             const list = items.filter((t) => daySheet >= t.von && daySheet <= t.bis)
               .sort((a, b) => (a.vonZeit || '').localeCompare(b.vonZeit || ''));

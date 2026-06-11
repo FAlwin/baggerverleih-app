@@ -8,7 +8,6 @@ const NAV = [
   { id: 'kunden',      icon: 'kunden',      label: 'Kunden' },
   { id: 'flotte',      icon: 'flotte',      label: 'Flotte' },
   { id: 'buchhaltung', icon: 'buchhaltung', label: 'Buchhaltung' },
-  { id: 'verlauf',     icon: 'clock',       label: 'Verlauf' },
   { id: 'einstellungen', icon: 'settings',  label: 'Einstellungen' },
 ];
 

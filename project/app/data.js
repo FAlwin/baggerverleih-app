@@ -272,6 +272,9 @@
     // Vermiet-Wochentage (Index 0=Sonntag … 6=Samstag). Abgewählte Tage:
     // an dem Tag keine Buchung möglich UND sie zählen nicht als Miettag (Enddatum verschiebt sich).
     mietWochentage: [false, true, true, true, true, true, true],
+    // Frei konfigurierbare Gerätekategorien (Reihenfolge = Gruppierung in Flotte + Geräte-Dropdown).
+    // Reine Anzeige/Gruppierung; ob ein Gerät eigenständig vermietbar ist, steuert der Schalter je Gerät.
+    kategorien: ['Maschine', 'Transport', 'Anbau', 'Elektro', 'Sonstiges'],
     nummern: {                  // Nummernkreise: Präfix + Startnummer (Untergrenze)
       rechnung: { prefix: 'R',  start: 1 },
       angebot:  { prefix: 'A',  start: 1 },

@@ -42,11 +42,26 @@ function GeraeteStandort({ store, nav }) {
 
   React.useEffect(() => {
     if (!window.L || !mapRef.current || mapObj.current) return;
-    const map = window.L.map(mapRef.current, { scrollWheelZoom: false }).setView([50.83, 7.21], 10);
+    const el = mapRef.current;
+    const map = window.L.map(el, { scrollWheelZoom: false }).setView([50.83, 7.21], 10);
     window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
     mapObj.current = map;
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 120);
-    return () => { try { map.remove(); } catch (e) {} mapObj.current = null; };
+    // Standalone-PWA/Safari: der Karten-Container bekommt seine Höhe oft erst nach mehreren Frames.
+    // Ein einzelnes invalidateSize verpasst das → graue Karte + verrutschte Zoom-Controls.
+    // Darum mehrfach (rAF + gestaffelte Timer) UND bei jeder Größenänderung des Containers neu vermessen.
+    const fix = () => { try { map.invalidateSize(false); } catch (e) {} };
+    requestAnimationFrame(fix);
+    const timers = [80, 300, 700, 1200].map((ms) => setTimeout(fix, ms));
+    let ro;
+    try { ro = new ResizeObserver(fix); ro.observe(el); } catch (e) {}
+    window.addEventListener('resize', fix);
+    return () => {
+      timers.forEach(clearTimeout);
+      try { ro && ro.disconnect(); } catch (e) {}
+      window.removeEventListener('resize', fix);
+      try { map.remove(); } catch (e) {}
+      mapObj.current = null;
+    };
   }, []);
 
   React.useEffect(() => {
@@ -102,7 +117,10 @@ function GeraeteStandort({ store, nav }) {
           <Icon name="width" size={14} /> Vollbild
         </button>
       </div>
-      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative' }}>
+      {/* zIndex:0 macht den Karten-Container zu einem eigenen Stacking-Context: die Leaflet-Zoom-Controls
+          (z-index ~1000) bleiben dadurch im Container eingesperrt und stanzen sich nicht mehr über den
+          fixierten Header (z 30) oder die Bottom-Nav (z 100) beim Scrollen. */}
+      <div style={full ? { position: 'fixed', inset: 0, zIndex: 400, background: 'var(--paper)' } : { height: 240, width: '100%', background: 'var(--paper-3)', position: 'relative', zIndex: 0 }}>
         <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
         {full && (
           <>

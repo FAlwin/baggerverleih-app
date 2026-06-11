@@ -1,4 +1,14 @@
-/* ============ SCREEN: Neue Rechnung / Neues Angebot (params.mode) ============ */
+/* ============ SCREEN: Beleg-Editor — Angebot / Rechnung / Mietvertrag ============
+   Erstellen UND Bearbeiten teilen denselben Kachel-Flow wie „Neue Anfrage":
+   Die Geräte erscheinen als verschiebbare, eingeklappte Kacheln (Name, Zeitraum, Zusatzleistungen,
+   Preis). Klick → bearbeiten (Draft), ✓ übernimmt / ✗ verwirft. Die Kacheln SIND die Positionen;
+   zusätzlich lassen sich manuelle Zeilen (Service/Anbau/frei) ergänzen.
+
+   params:
+     mode: 'angebot' | 'rechnung'         (Neuanlage)
+     editKind: 'angebot'|'rechnung'|'mietvertrag', editId, editAuftragId   (Bearbeiten)
+     auftragId?, kundeId?, anfrageId?, prefill?  (Vorbefüllung)
+*/
 window.Screens = window.Screens || {};
 const { useState: nS, useMemo: nM, useRef: nR, useEffect: nE } = React;
 
@@ -6,214 +16,182 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
   const store = window.useStore();
   const F = window.FRIESEN;
   const toast = window.UI.useToast();
-  const mode = params.mode === 'angebot' ? 'angebot' : 'rechnung';
-  const isAngebot = mode === 'angebot';
 
-  // Anfrage-Prefill: automatisch Felder belegen
+  // ----- Modus (Neu vs. Bearbeiten) -----
+  const editKind = params.editKind || null;
+  const isEdit = !!editKind;
+  const kind = editKind || (params.mode === 'angebot' ? 'angebot' : 'rechnung');
+  const isAngebot = kind === 'angebot';
+  const isMV = kind === 'mietvertrag';
+
+  // Anfrage-/Beleg-Prefill
   const pf = params.prefill || null;
 
-  // Kunde: aus Anfrage abgleichen oder vorausfüllen
+  // ----- Kunde -----
   const matchedKunde = pf ? store.db.kunden.find((k) =>
-    (pf.phone && k.phone && k.phone.replace(/\s/g,'') === pf.phone.replace(/\s/g,'')) ||
+    (pf.phone && k.phone && k.phone.replace(/\s/g, '') === pf.phone.replace(/\s/g, '')) ||
     (pf.email && k.email && k.email.toLowerCase() === pf.email.toLowerCase()) ||
     (pf.name && k.name.toLowerCase() === pf.name.toLowerCase())
   ) : null;
-
-  const [kundeId, setKundeId] = nS(matchedKunde?.id || params.kundeId || '');
-  const [neuerKunde, setNeu] = nS(!matchedKunde && !params.kundeId && !!pf);
-  const [nk, setNk] = nS(pf ? {
+  const [kundeId, setKundeId] = nS(pf?.kundeId || matchedKunde?.id || params.kundeId || '');
+  const [neuerKunde, setNeu] = nS(!matchedKunde && !pf?.kundeId && !params.kundeId && !!pf && !!pf.name);
+  const [nk, setNk] = nS(pf && pf.name ? {
     name: pf.name || '', kontakt: '', street: '', city: pf.ort || '',
     phone: pf.phone || '', email: pf.email || '', typ: 'Privat',
   } : { name: '', kontakt: '', street: '', city: '', phone: '', email: '', typ: 'Gewerbe' });
 
-  const [datum, setDatum] = nS(store.today);
-  const [faellig, setFaellig] = nS(window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
-  // gueltigBis wird unten automatisch berechnet (Einstellung + Mindest-Vorlauf vor Arbeitsbeginn).
-  const [mietvertrag, setMV] = nS(false);
-  const [mietVon, setMietVon] = nS(pf?.von || store.today);
-  const [mietBis, setMietBis] = nS(pf?.bis || window.addDays(store.today, 1));
+  const [datum, setDatum] = nS(pf?.datum || store.today);
+  const [faellig, setFaellig] = nS(pf?.faellig || window.addDays(store.today, (store.db.settings && store.db.settings.zahlungszielTage) || 14));
+  const [ort, setOrt] = nS(pf?.ort || '');
+  const [mietvertrag, setMV] = nS(false);   // Begleit-MV nur bei Rechnungs-Neuanlage
 
-  // Positionen — aus Anfrage vorausfüllen (im Angebot übernimmt das die Tagespreis-Automatik)
-  const initPos = () => {
-    // Vorbefüllung aus Mietvertrag (oder anderem Beleg): explizit übergebene Positionen haben Vorrang
-    if (pf?.positionen && pf.positionen.length) return pf.positionen.map((p) => ({ ...p }));
-    if (mode === 'angebot') return [];
-    if (!pf?.geraetId) return [];
-    const g = store.db.flotte.find((x) => x.id === pf.geraetId);
-    if (!g || !g.tarif?.length) return [];
-    const t = g.tarif.find((r) => r.preis > 0) || g.tarif[0];
-    return [{ text: g.name, einheit: t.einheit, menge: 1, preis: t.preis }];
+  // ----- Geräte-Kacheln (rows) -----
+  const initRows = () => {
+    if (pf && pf.geraete && pf.geraete.length) return pf.geraete.map((e) => window.entryToRow(store, e));
+    if (pf && pf.geraetId) return [{ ...window.LEER_ROW(), geraetId: pf.geraetId, von: pf.von || '', bis: pf.bis || pf.von || '' }];
+    return [{ ...window.LEER_ROW(), geraetId: '' }];   // leere Karte → Geräteauswahl
   };
-  const [pos, setPos] = nS(initPos);
+  const [rows, setRows] = nS(initRows);
+  const rowsTouched = nR(false);
+  const setRowsTouched = (updater) => { rowsTouched.current = true; setRows(updater); };
 
-  // Angebot-Metadaten aus Anfrage — Zeitraum als Start + Dauer (Ende berechnet)
-  const [angebotVon, setAngebotVon] = nS(pf?.von || '');
-  const [angebotVonZeit, setAngebotVonZeit] = nS(pf?.vonZeit || '08:00');
-  const [dauer, setDauer] = nS(pf?.von && pf?.bis ? window.tageZwischen(pf.von, pf.bis) : 1);
-  const [dauerEinheit, setDauerEinheit] = nS('Tage');
-  const angebotEnde = window.berechneEnde(angebotVon, angebotVonZeit, dauer, dauerEinheit);
-  const angebotBis = angebotEnde.bis;
+  const geraeteEntries = nM(
+    () => rows.filter((r) => window.rowOk(store, r)).map((r) => window.rowToEntry(store, r)),
+    [rows, store.db.flotte]
+  );
+  const ent0 = geraeteEntries[0] || null;
+  const angebotVon = ent0 ? ent0.von : (pf?.von || '');
+  const angebotBis = ent0 ? ent0.bis : (pf?.bis || '');
+  const angebotGeraetId = ent0 ? ent0.geraetId : (pf?.geraetId || '');
 
-  // Gültig bis automatisch: Standard = heute + Einstellung; aber spätestens „Vorlauf"-Tage vor dem
-  // Wunschbeginn (damit der Kunde rechtzeitig zusagen kann). Greift die Verkürzung → dringend.
+  // ----- Positionen: aus den Geräte-Kacheln abgeleitet + manuelle Zeilen -----
+  const derived = nM(() => (window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: geraeteEntries }, store) : []), [geraeteEntries]);
+  // Manuelle Zeilen: beim Bearbeiten die Beleg-Positionen, die NICHT aus den Geräten stammen.
+  const initExtra = () => {
+    const pfPos = (pf && pf.positionen) ? pf.positionen.map((p) => ({ ...p })) : [];
+    if (!pfPos.length) return [];
+    const initialEntries = (pf && pf.geraete && pf.geraete.length) ? pf.geraete : [];
+    const d0 = window.positionenAusGeraete ? window.positionenAusGeraete({ geraete: initialEntries }, store) : [];
+    const key = (p) => (p.text || '') + '|' + (Number(p.menge) || 0) + '|' + (Number(p.preis) || 0);
+    const pool = {}; d0.forEach((p) => { const k = key(p); pool[k] = (pool[k] || 0) + 1; });
+    const devNames = (store.db.flotte || []).map((g) => g.name).filter(Boolean);
+    const derivedTexts = new Set(d0.map((p) => p.text));
+    // „aus Geräten stammend" = exakte Übereinstimmung ODER Alt-Text, der mit einem Gerätenamen beginnt
+    // ODER eine Zusatzleistungs-Zeile. Solche Zeilen kommen aus den Kacheln → NICHT zusätzlich als manuell führen.
+    const isDeviceish = (p) => {
+      const k = key(p); if (pool[k]) { pool[k]--; return true; }
+      if (devNames.some((n) => p.text && p.text.indexOf(n) === 0)) return true;
+      if (derivedTexts.has(p.text)) return true;
+      return false;
+    };
+    return pfPos.filter((p) => !isDeviceish(p));
+  };
+  const [extraPos, setExtraPos] = nS(initExtra);
+  const addFree = () => setExtraPos((a) => [...a, { text: '', einheit: 'Pauschale', menge: 1, preis: 0 }]);
+  const updExtra = (i, patch) => setExtraPos((a) => a.map((p, j) => j === i ? { ...p, ...patch } : p));
+  const removeExtra = (i) => setExtraPos((a) => a.filter((_, j) => j !== i));
+  const moveExtra = (i, dir) => setExtraPos((a) => { const j = i + dir; if (j < 0 || j >= a.length) return a; const c = a.slice(); const t = c[i]; c[i] = c[j]; c[j] = t; return c; });
+
+  const positionen = [...derived, ...extraPos].map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0, ...(p.zeitraum ? { zeitraum: p.zeitraum } : {}) }));
+  const total = positionen.reduce((a, p) => a + p.menge * p.preis, 0);
+
+  // ----- Gültig bis (Angebot) -----
   const _vorlauf = (store.db.settings && store.db.settings.angebotVorlaufTage) || 0;
   const _gTage = (store.db.settings && store.db.settings.angebotGueltigTage) || 14;
   const gueltigNormal = window.addDays(store.today, _gTage);
   const gueltigCap = (isAngebot && angebotVon) ? window.addDays(angebotVon, -_vorlauf) : null;
-  const gueltigBis = (gueltigCap && gueltigCap < gueltigNormal) ? gueltigCap : gueltigNormal;
-  const gueltigGekuerzt = !!(gueltigCap && gueltigCap < gueltigNormal);
+  const autoGueltig = (gueltigCap && gueltigCap < gueltigNormal) ? gueltigCap : gueltigNormal;
+  const [gueltigEdit, setGueltigEdit] = nS(pf?.gueltigBis || '');
+  const gueltigBis = isEdit ? (gueltigEdit || autoGueltig) : autoGueltig;
+  const gueltigGekuerzt = !isEdit && !!(gueltigCap && gueltigCap < gueltigNormal);
   const dringend = isAngebot && (gueltigGekuerzt || gueltigBis <= store.today);
-  const [angebotGeraetId, setAngebotGeraetId] = nS(pf?.geraetId || '');
-  const [angebotOrt, setAngebotOrt] = nS(pf?.ort || '');
 
-  // Kalender-Abgleich: ist der gewünschte Zeitraum für das Gerät frei?
-  const konflikt = (isAngebot && angebotGeraetId && angebotVon)
-    ? store.findConflict(angebotGeraetId, angebotVon, angebotBis, params.auftragId) : null;
-  const freierVorschlag = nM(() => {
-    if (!konflikt) return null;
-    let von = angebotVon, c = konflikt, i = 0;
-    while (c && i < 120) {
-      von = window.addDays(c.bis, 1);
-      const e = window.berechneEnde(von, angebotVonZeit, dauer, dauerEinheit);
-      c = store.findConflict(angebotGeraetId, von, e.bis, params.auftragId);
-      i++;
-    }
-    return c ? null : { von };
-  }, [konflikt, angebotGeraetId, angebotVon, angebotVonZeit, dauer, dauerEinheit]);
-
-  // Position-Picker state
-  const [pickerGeraet, setPickerGeraet] = nS('');
-  const [pickerEinheit, setPickerEinheit] = nS('');
-  const selectedGeraet = nM(() => store.db.flotte.find((g) => g.id === pickerGeraet), [pickerGeraet, store.db.flotte]);
-  // Kategorien: echte Geräte (Dropdown) getrennt von Anbaugeräten & Zubehör (Buttons)
-  const echteGeraete = nM(() => store.db.flotte.filter((g) => g.kat !== 'Anbau'), [store.db.flotte]);
-  const anbauGeraete = nM(() => store.db.flotte.filter((g) => g.kat === 'Anbau'), [store.db.flotte]);
-  const einheitOptions = nM(() => {
-    if (!selectedGeraet || !selectedGeraet.tarif) return [];
-    return selectedGeraet.tarif.filter((t) => t.preis > 0 || t.einheit === 'inklusive');
-  }, [selectedGeraet]);
-
-  const addFromGeraet = () => {
-    if (!selectedGeraet || !pickerEinheit) return;
-    const tarRow = selectedGeraet.tarif.find((t) => t.einheit === pickerEinheit);
-    if (!tarRow) return;
-    setPos((p) => [...p, { text: selectedGeraet.name, einheit: tarRow.einheit, menge: 1, preis: tarRow.preis }]);
-    setPickerGeraet(''); setPickerEinheit('');
-  };
-
-  // Anbaugerät/Zubehör als Position übernehmen (erster sinnvoller Tarif: bezahlt oder 'inklusive')
-  const addAnbau = (gid) => {
-    const g = store.db.flotte.find((x) => x.id === gid);
-    if (!g) return;
-    const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0] || { einheit: 'inklusive', preis: 0 };
-    setPos((arr) => [...arr, { text: g.name, einheit: tar.einheit, menge: 1, preis: tar.preis }]);
-  };
-
-  const addService = (pid) => {
-    const p = store.db.preisliste.find((x) => x.id === pid);
-    if (!p) return;
-    setPos((arr) => [...arr, { text: p.geraet, einheit: p.einheit, menge: 1, preis: p.preis }]);
-  };
-  const addFree = () => setPos((arr) => [...arr, { text: '', einheit: 'Tag', menge: 1, preis: 0 }]);
-  const updatePos = (i, patch) => setPos((arr) => arr.map((p, j) => j === i ? { ...p, ...patch, auto: false } : p));
-
-  // Tagespreis × Dauer: im Angebot automatisch eine Position aus Gerät + Dauer (Tage) vorbefüllen.
-  // Manuell bearbeitete Positionen (auto:false) bleiben erhalten.
-  const hasSeededPos = !!(pf && pf.positionen && pf.positionen.length);
-  nE(() => {
-    if (!isAngebot || hasSeededPos) return; // Bei vorbefüllten Positionen (z.B. Mehrgeräte-Auftrag) keine Auto-Position
-    const g = store.db.flotte.find((x) => x.id === angebotGeraetId);
-    const t = g && g.tarif && (g.tarif.find((r) => r.einheit === 'Tag') || g.tarif.find((r) => r.preis > 0));
-    setPos((arr) => {
-      const rest = arr.filter((p) => !p.auto);
-      if (!g || !t || dauerEinheit !== 'Tage') return rest;
-      return [{ text: g.name, einheit: 'Tag', menge: Math.max(1, Number(dauer) || 1), preis: t.preis, auto: true }, ...rest];
-    });
-  }, [angebotGeraetId, dauer, dauerEinheit, isAngebot]);
-  const removePos = (i) => setPos((arr) => arr.filter((_, j) => j !== i));
-  // Position verschieben (Reihenfolge ändern). Verschobene Positionen gelten als manuell (auto:false).
-  const movePos = (i, dir) => setPos((arr) => {
-    const j = i + dir;
-    if (j < 0 || j >= arr.length) return arr;
-    const c = arr.map((p) => ({ ...p, auto: false }));
-    const tmp = c[i]; c[i] = c[j]; c[j] = tmp;
-    return c;
-  });
-  const total = pos.reduce((a, p) => a + (Number(p.menge) || 0) * (Number(p.preis) || 0), 0);
+  const mietVon = angebotVon || pf?.von || store.today;
+  const mietBis = angebotBis || pf?.bis || window.addDays(store.today, 1);
 
   const kundeObj = neuerKunde ? { ...nk, id: '__neu' } : store.kundeById(kundeId);
   const draft = {
-    id: '(Entwurf)', kundeId: kundeObj?.id || '', datum, faellig,
-    positionen: pos.length ? pos.map((p) => ({ text: p.text, einheit: p.einheit, menge: Number(p.menge) || 0, preis: Number(p.preis) || 0 })) : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
+    id: pf?.belegId || '(Entwurf)', kundeId: kundeObj?.id || '', datum, faellig,
+    positionen: positionen.length ? positionen : [{ text: 'Noch keine Position', einheit: '—', menge: 0, preis: 0 }],
     status: 'offen',
   };
   const kundeOk = kundeObj && (neuerKunde ? nk.name && nk.city : kundeId);
-  // Angebot braucht zusätzlich Gerät + Startdatum (für die Kalender-Reservierung)
-  const angebotPflicht = !isAngebot || (angebotGeraetId && angebotVon);
-  const canSave = kundeOk && pos.length > 0 && total > 0 && angebotPflicht;
+  const canSave = kundeOk && positionen.length > 0 && total > 0;
 
-  const persistKunde = () => {
-    if (neuerKunde) { return store.addKunde(nk); }
-    return kundeId;
-  };
+  const persistKunde = () => neuerKunde ? store.addKunde(nk) : kundeId;
 
   const save = () => {
-    if (isAngebot) {
-      if (konflikt && !confirm(`Der Zeitraum ist belegt (${konflikt.id || 'anderer Eintrag'}). Angebot trotzdem anlegen?`)) return;
-      if (angebotVon && window.istMiettag && !window.istMiettag(angebotVon) && !confirm('Das Startdatum fällt auf einen Tag, an dem nicht vermietet wird. Trotzdem fortfahren?')) return;
-      // Gültigkeit wird automatisch begrenzt (siehe oben); bei verkürzter Gültigkeit Angebot als „dringend" markieren.
+    const pos = positionen;
+    if (isEdit) {
+      const auId = params.editAuftragId || params.auftragId;
+      if (rowsTouched.current && auId && geraeteEntries.length && store.setAuftragGeraete) store.setAuftragGeraete(auId, geraeteEntries);
+      if (kind === 'angebot') {
+        const wasAb = pf && pf.gueltigBis && pf.gueltigBis < store.today;
+        store.updateAngebot(params.editId, { positionen: pos, betrag: total, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, gueltigBis, ...(wasAb && gueltigBis >= store.today ? { status: 'offen' } : {}) });
+        toast('Angebot aktualisiert');
+      } else if (kind === 'rechnung') {
+        store.updateRechnung(params.editId, { positionen: pos });
+        toast('Rechnung aktualisiert');
+      } else {
+        store.mietvertragUpdate(auId, { positionen: pos, von: mietVon, bis: mietBis });
+        toast('Mietvertrag aktualisiert');
+      }
+      nav('auftrag', { id: auId });
+      return;
     }
     const kId = persistKunde();
-    // Jeder Beleg gehört zu einem Auftrag. Ohne Kontext legen wir einen schlanken Auftrag an –
-    // die Auftrags-ID berechnen wir vorab (zuverlässig), Anlegen + Verknüpfen passiert atomar.
     const N = (store.db.settings && store.db.settings.nummern) || {};
     const akr = N.auftrag || { prefix: 'AU', start: 1 };
     const auftragId = params.auftragId || store.nextId(akr.prefix, store.db.auftraege, akr.start);
     const neuerAuftrag = params.auftragId ? null : {
-      kundeId: kId,
-      geraetId: (isAngebot ? angebotGeraetId : pf?.geraetId) || '',
-      von: (isAngebot ? (angebotVon || datum) : (mietvertrag ? mietVon : datum)),
-      bis: (isAngebot ? (angebotBis || angebotVon || datum) : (mietvertrag ? mietBis : datum)),
-      ort: (isAngebot ? angebotOrt : (pf?.ort || '')),
+      kundeId: kId, geraete: geraeteEntries,
+      geraetId: angebotGeraetId, von: angebotVon || datum, bis: angebotBis || angebotVon || datum,
+      vonZeit: ent0 ? ent0.vonZeit : '08:00', bisZeit: ent0 ? ent0.bisZeit : '17:00', ort,
     };
+    if (params.auftragId && rowsTouched.current && geraeteEntries.length && store.setAuftragGeraete) store.setAuftragGeraete(params.auftragId, geraeteEntries);
     if (isAngebot) {
       store.belegAnlegen({ kind: 'angebot', auftragId, neuerAuftrag, anfrageId: params.anfrageId,
-        belegData: { kundeId: kId, datum, gueltigBis, positionen: draft.positionen, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort: angebotOrt, dringend } });
+        belegData: { kundeId: kId, datum, gueltigBis, positionen: pos, von: angebotVon, bis: angebotBis, geraetId: angebotGeraetId, ort, dringend } });
       toast('Angebot erstellt'); nav('auftrag', { id: auftragId });
     } else {
       store.belegAnlegen({ kind: 'rechnung', auftragId, neuerAuftrag,
-        belegData: { kundeId: kId, datum, faellig, positionen: draft.positionen, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null } });
+        belegData: { kundeId: kId, datum, faellig, positionen: pos, mietvertrag, mietzeit: mietvertrag ? `${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}` : null } });
       toast('Rechnung erstellt'); nav('auftrag', { id: auftragId });
     }
   };
 
   const [previewRef, scale] = window.useFitScale ? window.useFitScale(793) : [null, 0.55];
+  const previewDoc = isMV && kundeObj
+    ? <window.Print.MietvertragDoc rechnung={{ ...draft, id: pf?.belegId || 'MV (Entwurf)' }} kunde={kundeObj} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={`${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}`} />
+    : (!isAngebot && mietvertrag && kundeObj
+      ? <window.Print.MietvertragDoc rechnung={{ ...draft, id: 'MV (Entwurf)' }} kunde={kundeObj} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={`${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}`} />
+      : <window.Print.RechnungDoc rechnung={draft} kunde={kundeObj || { name: 'Kunde wählen …', street: '', city: '', typ: '' }} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />);
 
-  const previewDoc = !isAngebot && mietvertrag && kundeObj
-    ? <window.Print.MietvertragDoc rechnung={{ ...draft, id: 'MV (Entwurf)' }} kunde={kundeObj} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} mietzeit={`${F.fmtDate(mietVon)} – ${F.fmtDate(mietBis)}`} />
-    : <window.Print.RechnungDoc rechnung={draft} kunde={kundeObj || { name: 'Kunde wählen …', street: '', city: '', typ: '' }} company={store.db.company} fmtEUR={F.fmtEUR} fmtDate={F.fmtDate} />;
-
-  const kicker = isAngebot ? 'Neues Angebot' : 'Neue Rechnung';
+  const titel = isEdit
+    ? (isMV ? 'Mietvertrag bearbeiten' : (isAngebot ? 'Angebot ' + (pf?.belegId || '') + ' bearbeiten' : 'Rechnung ' + (pf?.belegId || '') + ' bearbeiten'))
+    : (isAngebot ? 'Neues Angebot' : 'Neue Rechnung');
+  const kicker = isEdit ? 'Bearbeiten' : (isAngebot ? 'Neues Angebot' : 'Neue Rechnung');
+  const saveLabel = isEdit ? 'Speichern' : (isAngebot ? 'Angebot erstellen' : 'Rechnung erstellen');
 
   return (
     <>
-      <PageHeader kicker={kicker} title={isAngebot ? 'Neues Angebot' : 'Neue Rechnung'} mobile={mobile} onMenu={onMenu}>
-        {!isAngebot && <window.UI.Btn variant="ghost" onClick={() => nav('rechnung-neu', { ...params, mode: 'angebot' })} disabled={!canSave}>Als Angebot</window.UI.Btn>}
-        <window.UI.Btn icon="check" onClick={save} disabled={!canSave}>{isAngebot ? 'Angebot erstellen' : 'Rechnung erstellen'}</window.UI.Btn>
+      <PageHeader kicker={kicker} title={titel} mobile={mobile} onMenu={onMenu}>
+        {!isEdit && !isAngebot && <window.UI.Btn variant="ghost" onClick={() => nav('rechnung-neu', { ...params, mode: 'angebot' })} disabled={!canSave}>Als Angebot</window.UI.Btn>}
+        <window.UI.Btn icon="check" onClick={save} disabled={!canSave}>{saveLabel}</window.UI.Btn>
       </PageHeader>
 
       <div className="content-pad" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 20, alignItems: 'start' }}>
         <div className="stack" style={{ gap: 16, minWidth: 0 }}>
-          {/* Prefill-Banner */}
-          {pf && (
+          {pf && !isEdit && (
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: 'var(--yellow-wash)', borderRadius: 'var(--r)', border: '1px solid var(--yellow)', fontSize: 13 }}>
               <Icon name="bell" size={17} color="var(--yellow-deep)" style={{ flex: '0 0 auto', marginTop: 1 }} />
               <div>
                 <div style={{ fontWeight: 700 }}>{params.auftragId ? `Aus Auftrag ${params.auftragId} vorausgefüllt` : 'Aus Anfrage vorausgefüllt'}</div>
-                <div style={{ color: 'var(--muted)', marginTop: 2 }}>{matchedKunde ? `Bestehender Kunde: ${matchedKunde.name}` : params.kundeId ? `Kunde übernommen` : 'Kein passender Kunde gefunden — Neuanlage vorausgefüllt.'}</div>
+                <div style={{ color: 'var(--muted)', marginTop: 2 }}>{matchedKunde ? `Bestehender Kunde: ${matchedKunde.name}` : params.kundeId || pf?.kundeId ? `Kunde übernommen` : 'Kein passender Kunde gefunden — Neuanlage vorausgefüllt.'}</div>
               </div>
             </div>
           )}
+
           {/* Kunde */}
           <window.UI.Card style={{ padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -244,78 +222,36 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
             )}
           </window.UI.Card>
 
-          {/* Positionen */}
+          {/* Positionen = Geräte-Kacheln + manuelle Zeilen */}
           <window.UI.Card style={{ padding: 18 }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Positionen</h2>
-            <div className="stack" style={{ gap: 8 }}>
-              {pos.map((p, i) => (
-                <div key={i} style={mobile
-                  ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 86px', gap: 6, alignItems: 'center' }
-                  : { display: 'grid', gridTemplateColumns: '1fr 60px 100px 90px 86px', gap: 7, alignItems: 'center' }}>
-                  <window.UI.Input value={p.text} onChange={(e) => updatePos(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '8px 10px', fontSize: 13, gridColumn: mobile ? '1 / -1' : 'auto' }} />
-                  <window.UI.Input type="number" value={p.menge} onChange={(e) => updatePos(i, { menge: e.target.value })} title="Menge" placeholder="Menge" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'center' }} />
-                  {/* Einheit: dropdown if this pos has a geraet hint, else text */}
-                  <window.UI.Input value={p.einheit} onChange={(e) => updatePos(i, { einheit: e.target.value })} title="Einheit" placeholder="Einheit" style={{ padding: '8px 8px', fontSize: 12.5 }} />
-                  <window.UI.Input type="number" value={p.preis} onChange={(e) => updatePos(i, { preis: e.target.value })} title="Einzelpreis €" placeholder="Preis" style={{ padding: '8px 8px', fontSize: 13, textAlign: 'right' }} />
-                  <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                    <window.UI.IconBtn name="chevron" size={13} disabled={i === 0} onClick={() => movePos(i, -1)} title="nach oben" style={{ width: 26, height: 32, transform: 'rotate(-90deg)' }} />
-                    <window.UI.IconBtn name="chevron" size={13} disabled={i === pos.length - 1} onClick={() => movePos(i, 1)} title="nach unten" style={{ width: 26, height: 32, transform: 'rotate(90deg)' }} />
-                    <window.UI.IconBtn name="trash" size={15} onClick={() => removePos(i)} title="Entfernen" style={{ width: 28, height: 32 }} />
-                  </div>
-                </div>
-              ))}
-              {pos.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Noch keine Positionen. Gerät oder Leistung unten wählen ↓</div>}
-            </div>
+            <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Positionen</h2>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Geräte als Kacheln (Klick zum Bearbeiten, ✓ übernehmen) – verschiebbar. Zusätzlich manuelle Zeilen möglich.</div>
 
-            {/* Positions-Picker: drei getrennte Kategorien */}
-            <div style={{ marginTop: 16, padding: '14px', background: 'var(--paper-2)', borderRadius: 'var(--r)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* 1) Gerät */}
-              <div>
-                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Gerät</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <window.UI.Field label="Gerät" style={{ flex: '2 1 140px', minWidth: 120 }}>
-                    <window.UI.Select value={pickerGeraet} onChange={(e) => { setPickerGeraet(e.target.value); setPickerEinheit(''); }}>
-                      <option value="">— wählen —</option>
-                      {echteGeraete.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                    </window.UI.Select>
-                  </window.UI.Field>
-                  <window.UI.Field label="Einheit" style={{ flex: '2 1 120px', minWidth: 110 }}>
-                    <window.UI.Select value={pickerEinheit} onChange={(e) => setPickerEinheit(e.target.value)} disabled={!selectedGeraet}>
-                      <option value="">— wählen —</option>
-                      {einheitOptions.map((t, i) => <option key={i} value={t.einheit}>{t.einheit} {t.preis > 0 ? '– ' + F.fmtEUR(t.preis) : ''}</option>)}
-                    </window.UI.Select>
-                  </window.UI.Field>
-                  <window.UI.Btn icon="plus" onClick={addFromGeraet} disabled={!pickerEinheit} style={{ flex: '0 0 auto', marginBottom: 0 }}>Hinzufügen</window.UI.Btn>
-                </div>
-              </div>
-              {/* 2) Anbaugeräte & Zubehör */}
-              {anbauGeraete.length > 0 && (
-                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-                  <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Anbaugeräte &amp; Zubehör</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {anbauGeraete.map((g) => {
-                      const tar = (g.tarif || []).find((t) => t.preis > 0) || (g.tarif || [])[0];
-                      return (
-                        <button key={g.id} onClick={() => addAnbau(g.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                          + {g.name}{tar && tar.preis > 0 ? ' · ' + F.fmtEUR(tar.preis) : (tar && tar.einheit === 'inklusive' ? ' · inkl.' : '')}
-                        </button>
-                      );
-                    })}
+            <window.GeraeteErfassung store={store} F={F} rows={rows} setRows={setRowsTouched} />
+
+            {/* Manuelle Positionen */}
+            {extraPos.length > 0 && (
+              <div className="stack" style={{ gap: 8, marginTop: 12 }}>
+                <div className="kicker" style={{ color: 'var(--muted)' }}>Weitere Positionen</div>
+                {extraPos.map((p, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 54px 90px 80px 78px', gap: 6, alignItems: 'center', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
+                    <window.UI.Input value={p.text} onChange={(e) => updExtra(i, { text: e.target.value })} placeholder="Beschreibung" style={{ padding: '7px 9px', fontSize: 13 }} />
+                    <window.UI.Input type="number" value={p.menge} onChange={(e) => updExtra(i, { menge: e.target.value })} title="Menge" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'center' }} />
+                    <window.UI.Input value={p.einheit} onChange={(e) => updExtra(i, { einheit: e.target.value })} title="Einheit" style={{ padding: '7px 6px', fontSize: 12.5 }} />
+                    <window.UI.Input type="number" value={p.preis} onChange={(e) => updExtra(i, { preis: e.target.value })} title="Einzelpreis €" style={{ padding: '7px 6px', fontSize: 13, textAlign: 'right' }} />
+                    <div style={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <window.UI.IconBtn name="arrowUp" size={14} disabled={i === 0} onClick={() => moveExtra(i, -1)} title="nach oben" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
+                      <window.UI.IconBtn name="arrowDown" size={14} disabled={i === extraPos.length - 1} onClick={() => moveExtra(i, 1)} title="nach unten" style={{ width: 26, height: 30, border: 'none', background: 'transparent' }} />
+                      <window.UI.IconBtn name="trash" size={14} onClick={() => removeExtra(i)} title="Entfernen" style={{ width: 26, height: 30 }} />
+                    </div>
                   </div>
-                </div>
-              )}
-              {/* 3) Sonstige Servicepositionen */}
-              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-                <div className="kicker" style={{ color: 'var(--muted)', marginBottom: 10 }}>Sonstige Servicepositionen</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {store.db.preisliste.filter((p) => p.preis > 0).map((p) => (
-                    <button key={p.id} onClick={() => addService(p.id)} style={{ fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r)', background: 'var(--paper)', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                      + {p.geraet.replace('Transportpauschale ', 'Transport ').replace('Reinigungspauschale', 'Reinigung')}
-                    </button>
-                  ))}
-                  <button onClick={addFree} style={{ fontSize: 12, padding: '5px 10px', border: '1px dashed var(--line)', borderRadius: 'var(--r)', background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'var(--muted)' }}>+ Freie Position</button>
-                </div>
+                ))}
               </div>
+            )}
+
+            {/* Freie Position (Sonderfälle wie Rabatt/individuelle Leistung). Geräte + Zusatzleistungen laufen über die Kacheln. */}
+            <div style={{ marginTop: 14 }}>
+              <window.UI.Btn size="sm" variant="ghost" icon="plus" onClick={addFree}>Freie Position</window.UI.Btn>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, padding: '12px 14px', background: 'var(--ink)', borderRadius: 'var(--r)', color: '#fff' }}>
@@ -327,50 +263,22 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
           {/* Konditionen */}
           <window.UI.Card style={{ padding: 18 }}>
             <div className="form-2">
-              <window.UI.Field label={isAngebot ? 'Datum (automatisch heute)' : 'Datum'}><window.UI.Input type="date" value={datum} disabled={isAngebot} onChange={(e) => { if (!isAngebot) setDatum(e.target.value); }} /></window.UI.Field>
-              <window.UI.Field label={isAngebot ? 'Gültig bis (automatisch)' : 'Fällig bis'}>
-                <window.UI.Input type="date" value={isAngebot ? gueltigBis : faellig} disabled={isAngebot} onChange={(e) => { if (!isAngebot) setFaellig(e.target.value); }} />
-              </window.UI.Field>
+              <window.UI.Field label={isAngebot ? 'Datum (automatisch heute)' : 'Datum'}><window.UI.Input type="date" value={datum} disabled={isAngebot && !isEdit} onChange={(e) => setDatum(e.target.value)} /></window.UI.Field>
+              {isAngebot ? (
+                <window.UI.Field label={isEdit ? 'Gültig bis' : 'Gültig bis (automatisch)'}>
+                  <window.UI.Input type="date" value={gueltigBis} disabled={!isEdit} onChange={(e) => setGueltigEdit(e.target.value)} />
+                </window.UI.Field>
+              ) : !isMV ? (
+                <window.UI.Field label="Fällig bis"><window.UI.Input type="date" value={faellig} onChange={(e) => setFaellig(e.target.value)} /></window.UI.Field>
+              ) : <div />}
             </div>
             {isAngebot && gueltigGekuerzt && (
               <div style={{ display: 'flex', gap: 9, padding: '10px 12px', background: 'var(--warn-wash)', borderRadius: 'var(--r)', fontSize: 12.5, marginTop: 12 }}>
                 <Icon name="alert" size={16} color="var(--warn)" style={{ flex: '0 0 auto', marginTop: 1 }} />
-                <span><b>Verkürzte Gültigkeit:</b> Wegen des nahen Arbeitsbeginns ({F.fmtDate(angebotVon)}) endet die Gültigkeit schon am <b>{F.fmtDate(gueltigBis)}</b> ({_vorlauf} Tage vorher) statt nach {_gTage} Tagen. Das Angebot wird beim Versand als <b>dringend</b> markiert.</span>
+                <span><b>Verkürzte Gültigkeit:</b> Wegen des nahen Arbeitsbeginns ({F.fmtDate(angebotVon)}) endet die Gültigkeit schon am <b>{F.fmtDate(gueltigBis)}</b> ({_vorlauf} Tage vorher). Das Angebot wird beim Versand als <b>dringend</b> markiert.</span>
               </div>
             )}
-            {isAngebot && (
-              <div className="stack" style={{ gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-                <div className="kicker" style={{ color: 'var(--muted)' }}>Wunsch-Zeitraum (für Kalender-Reservierung)</div>
-                <window.UI.ZeitraumPicker F={F} von={angebotVon} vonZeit={angebotVonZeit} menge={dauer} einheit={dauerEinheit} withTime={dauerEinheit === 'Stunden'}
-                  onChange={(v) => { setAngebotVon(v.von); setAngebotVonZeit(v.vonZeit); setDauer(v.menge); setDauerEinheit(v.einheit); }} />
-                <window.UI.Field label="Gerät (für Kalender)">
-                  <window.UI.Select value={angebotGeraetId} onChange={(e) => setAngebotGeraetId(e.target.value)}>
-                    <option value="">— kein Gerät zugeordnet —</option>
-                    {store.db.flotte.filter((g) => g.kat === 'Maschine' || g.kat === 'Transport').map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </window.UI.Select>
-                </window.UI.Field>
-                {/* Kalender-Abgleich */}
-                {angebotGeraetId && angebotVon && (
-                  konflikt ? (
-                    <div style={{ padding: '11px 13px', background: 'var(--danger-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--danger)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
-                        <Icon name="alert" size={15} color="var(--danger)" style={{ flex: '0 0 auto', marginTop: 1 }} />
-                        <span>Zeitraum ist belegt ({konflikt.id ? konflikt.id : 'anderer Eintrag'}, {F.fmtDate(konflikt.von)}–{F.fmtDate(konflikt.bis)}).</span>
-                      </div>
-                      {freierVorschlag && (
-                        <window.UI.Btn size="sm" variant="ghost" icon="kalender" onClick={() => setAngebotVon(freierVorschlag.von)}>Nächster freier Start: {F.fmtDate(freierVorschlag.von)}</window.UI.Btn>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ padding: '9px 13px', background: 'var(--ok-wash)', borderRadius: 'var(--r)', fontSize: 12.5, color: 'var(--ok)', display: 'flex', gap: 7, alignItems: 'center' }}>
-                      <Icon name="check" size={15} color="var(--ok)" /> Zeitraum ist frei.
-                    </div>
-                  )
-                )}
-                <window.UI.Field label="Einsatzort (Adresse)"><window.UI.Input value={angebotOrt} onChange={(e) => setAngebotOrt(e.target.value)} placeholder="z. B. Musterstraße 5, 53797 Lohmar" /></window.UI.Field>
-              </div>
-            )}
-            {!isAngebot && (
+            {!isAngebot && !isMV && !isEdit && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, cursor: 'pointer' }}>
                 <span onClick={() => setMV((v) => !v)} style={{ width: 42, height: 24, borderRadius: 12, background: mietvertrag ? 'var(--yellow)' : 'var(--line-2)', position: 'relative', transition: '.15s', flex: '0 0 auto' }}>
                   <span style={{ position: 'absolute', top: 3, left: mietvertrag ? 21 : 3, width: 18, height: 18, borderRadius: 9, background: '#fff', transition: '.15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)' }} />
@@ -378,11 +286,8 @@ window.Screens['rechnung-neu'] = function RechnungNeu({ nav, params = {}, mobile
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Mietvertrag gleichzeitig erzeugen</span>
               </label>
             )}
-            {!isAngebot && mietvertrag && (
-              <div className="form-2" style={{ marginTop: 12 }}>
-                <window.UI.Field label="Miete von"><window.UI.Input type="date" value={mietVon} onChange={(e) => setMietVon(e.target.value)} /></window.UI.Field>
-                <window.UI.Field label="Miete bis"><window.UI.Input type="date" value={mietBis} onChange={(e) => setMietBis(e.target.value)} /></window.UI.Field>
-              </div>
+            {(isMV || (!isAngebot && mietvertrag && !isEdit)) && (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Mietzeit: <b>{F.fmtDate(mietVon)} – {F.fmtDate(mietBis)}</b> (aus der Gerätewahl oben).</div>
             )}
           </window.UI.Card>
         </div>

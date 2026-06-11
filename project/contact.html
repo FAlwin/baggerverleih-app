@@ -334,6 +334,13 @@ document.getElementById('anfrage').addEventListener('submit', function(e) {
   const f = e.target;
   const basis = { name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(), ort: f.ort.value.trim(), nachricht: f.nachricht.value.trim() };
   if (!basis.name || !basis.phone || !basis.email || !basis.ort || !basis.nachricht) { alert('Bitte alle Pflichtfelder ausfüllen.'); return; }
+  // Plausibilitätsprüfung der Kontaktdaten (verhindert offensichtlichen Unsinn)
+  const reEmail = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const phoneDigits = basis.phone.replace(/\D/g, '');
+  if (basis.name.length < 2) { alert('Bitte einen gültigen Namen angeben.'); return; }
+  if (!reEmail.test(basis.email)) { alert('Bitte eine gültige E-Mail-Adresse angeben (z. B. name@beispiel.de).'); return; }
+  if (phoneDigits.length < 6) { alert('Bitte eine gültige Telefonnummer angeben.'); return; }
+  if (basis.ort.length < 6 || !/\d/.test(basis.ort) || !/[a-zäöüß]/i.test(basis.ort)) { alert('Bitte eine vollständige Adresse mit Straße und Hausnummer bzw. PLZ angeben (z. B. Musterstraße 5, 53797 Lohmar).'); return; }
   if (!rows.length || rows.some(r => !r.geraetId || !r.von)) { alert('Bitte für jedes Gerät Start wählen.'); return; }
   // Pro Gerät Ende berechnen + belegten/reservierten Zeitraum sperren
   const geraeteOut = [];

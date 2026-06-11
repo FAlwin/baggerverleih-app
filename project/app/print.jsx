@@ -62,7 +62,7 @@ function PosTable({ positionen, fmtEUR }) {
           {positionen.map((p, i) => (
             <tr key={i} style={{ borderBottom: '0.5px solid #ddd' }}>
               <td className="mono" style={{ padding: '9px 8px', color: '#9A9A93' }}>{String(i + 1).padStart(2, '0')}</td>
-              <td style={{ padding: '9px 8px', fontWeight: 500 }}>{p.text}</td>
+              <td style={{ padding: '9px 8px', fontWeight: 500 }}>{p.text}{p.zeitraum && <div style={{ fontSize: 9.5, color: '#9A9A93', fontWeight: 400, marginTop: 2 }}>{p.zeitraum}</div>}</td>
               <td className="mono" style={{ padding: '9px 8px', textAlign: 'right' }}>{p.menge}</td>
               <td style={{ padding: '9px 8px', color: '#6C6C66' }}>{p.einheit}</td>
               <td className="mono" style={{ padding: '9px 8px', textAlign: 'right' }}>{fmtEUR(p.preis)}</td>
