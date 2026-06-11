@@ -107,7 +107,11 @@ UI.Modal = function Modal({ open, onClose, title, children, width = 560, footer,
   const ty = !isMob ? 0 : (phase === 'enter' || phase === 'closing') ? '100%' : dragY + 'px';
   const sheetStyle = {
     background: 'var(--paper)', borderRadius: isMob ? '16px 16px 0 0' : 'var(--r-lg)', width: isMob ? '100%' : width, maxWidth: '100%',
-    maxHeight: isMob ? '92vh' : '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+    // dvh statt vh: berücksichtigt die ein-/ausfahrende Browserleiste (Safari/Standalone-PWA),
+    // env(safe-area-inset-top) hält Ziehgriff + X unter der Notch; paddingBottom hält den Footer über dem Home-Indikator.
+    maxHeight: isMob ? 'min(90dvh, calc(100dvh - env(safe-area-inset-top) - 12px))' : '90vh',
+    paddingBottom: isMob ? 'env(safe-area-inset-bottom)' : 0,
+    display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
     transform: isMob ? `translateY(${ty})` : 'none',
     transition: isMob ? (draggingRef.current ? 'none' : 'transform .3s cubic-bezier(.32,.72,0,1)') : 'none',
     animation: isMob ? 'none' : 'fadeIn .18s ease',

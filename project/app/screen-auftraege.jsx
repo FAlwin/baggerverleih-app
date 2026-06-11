@@ -1128,17 +1128,6 @@ window.VerlaufTimeline = function VerlaufTimeline({ events, store, nav }) {
   );
 };
 
-window.Screens.verlauf = function Verlauf({ nav, mobile, onMenu, PageHeader }) {
-  const store = window.useStore();
-  const events = store.db.verlauf || [];
-  return (
-    <>
-      <PageHeader kicker="Aktivität" title="Verlauf" mobile={mobile} onMenu={onMenu} />
-      <div className="content-pad">
-        {events.length === 0
-          ? <window.UI.Empty icon="clock" title="Noch kein Verlauf" sub="Sobald Anfragen, Aufträge, Angebote, Mietverträge oder Rechnungen bearbeitet werden, erscheinen die Schritte hier chronologisch." />
-          : <window.UI.Card style={{ padding: '8px 18px' }}><window.VerlaufTimeline events={events} store={store} nav={nav} /></window.UI.Card>}
-      </div>
-    </>
-  );
-};
+// Globale Verlauf-Seite entfernt (Runde 7): der globale Aktivitäts-Log wurde mit der Zeit
+// unübersichtlich. Die Verlaufs-Timeline bleibt pro Auftrag im Auftrag-Detail erhalten
+// (window.VerlaufTimeline, oben) und wird weiter aus db.verlauf gespeist.

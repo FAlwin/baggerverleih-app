@@ -563,6 +563,9 @@ function NeueAnfrageModal({ open, onClose, store, F, onSaved, prefill }) {
   const reset = () => { setForm({ name: '', phone: '', email: '', ort: '', nachricht: '' }); setRows([LEER_ROW()]); setActiveIdx(0); };
   const save = async () => {
     if (!valid) { alert('Bitte alle Pflichtfelder und für jedes Gerät eine gültige Zeitauswahl angeben.'); return; }
+    // Kontaktdaten plausibilisieren (E-Mail-Format + Telefon-Ziffernanzahl); die Adresse prüft das Geocoding weiter unten.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) { alert('Bitte eine gültige E-Mail-Adresse angeben (z. B. name@beispiel.de).'); return; }
+    if (form.phone.replace(/\D/g, '').length < 6) { alert('Bitte eine gültige Telefonnummer angeben.'); return; }
     // Einsatzort als echte Adresse prüfen
     const ortOk = await geocodeOrt(form.ort.trim());
     if (!ortOk && !window.confirm('Die Adresse „' + form.ort.trim() + '" konnte nicht gefunden werden.\nTrotzdem speichern?')) return;
@@ -629,6 +632,17 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
   const [neuOpen, setNeuOpen] = anfS(false);
   const [ablehnAnf, setAblehnAnf] = anfS(null);
   const [ablehnGrund, setAblehnGrund] = anfS('');
+  const [annahmeAnf, setAnnahmeAnf] = anfS(null);   // { anf, auftragId } – Info-Nachricht nach dem Annehmen
+  const [annahmeMsg, setAnnahmeMsg] = anfS('');
+
+  // Vorausgefüllter Annahme-Text für die Info-Nachricht an den Kunden
+  const annahmeText = (anf) => {
+    const c = store.db.company || {};
+    return `Hallo ${anf.name},\n\n`
+      + `vielen Dank für Ihre Anfrage bei ${c.name || 'Friesen Bau- und Mietservice'}.\n\n`
+      + `Gerne übernehmen wir Ihren Auftrag. Die Details (Angebot bzw. Termin) senden wir Ihnen in Kürze zu.\n\n`
+      + `Mit freundlichen Grüßen\n${c.owner || ''}${c.name ? ' · ' + c.name : ''}`;
+  };
 
   // Direktstart aus „Neu" (Dashboard): Formular gleich öffnen.
   React.useEffect(() => { if (params.neu) setNeuOpen(true); }, [params.neu]);
@@ -642,6 +656,7 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
 
   // Anfrage annehmen → Auftrag anlegen und in den Auftrag springen
   const annehmen = (anf) => {
+    const snap = store.snapshot();   // für Rückgängig
     const match = matchKunde(anf);
     const akr = (store.db.settings && store.db.settings.nummern && store.db.settings.nummern.auftrag) || { prefix: 'AU', start: 1 };
     const auftragId = store.nextId(akr.prefix, store.db.auftraege, akr.start);
@@ -659,7 +674,10 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
       auftrag: { kundeId, geraete, ort: anf.ort || '', notiz: anf.nachricht || '' },
     });
     setDetail(null);
-    toast('Auftrag ' + auftragId + ' angelegt', { action: () => nav('auftrag', { id: auftragId }), label: 'Auftrag öffnen' });
+    toast('Auftrag ' + auftragId + ' angelegt', { undo: () => store.restoreSnapshot(snap) });
+    // Optional: Info-Nachricht an den Kunden (Fenster erscheint, Versand bleibt freiwillig)
+    setAnnahmeMsg(annahmeText(anf));
+    setAnnahmeAnf({ anf, auftragId });
   };
 
   const loeschenAnf = (id) => { const snap = store.snapshot(); store.deleteAnfrage(id); toast('Anfrage gelöscht', { undo: () => store.restoreSnapshot(snap) }); };
@@ -873,6 +891,40 @@ window.Screens.anfragen = function Anfragen({ nav, params = {}, mobile, onMenu, 
           </div>
         </window.UI.Modal>
       )}
+
+      {/* Nach dem Annehmen: optionale Info-Nachricht an den Kunden (Versand bleibt freiwillig) */}
+      {annahmeAnf && (() => {
+        const anf = annahmeAnf.anf;
+        const num = (anf.whatsapp || anf.phone || '').replace(/[^0-9]/g, '').replace(/^0/, '49');
+        const c = store.db.company || {};
+        const betreff = encodeURIComponent('Ihre Anfrage bei ' + (c.name || 'Friesen Bau- und Mietservice'));
+        return (
+          <window.UI.Modal open title="Anfrage angenommen" onClose={() => setAnnahmeAnf(null)} width={460}
+            footer={<>
+              <window.UI.Btn variant="ghost" onClick={() => setAnnahmeAnf(null)}>Schließen</window.UI.Btn>
+              <window.UI.Btn icon="arrowRight" onClick={() => { const id = annahmeAnf.auftragId; setAnnahmeAnf(null); nav('auftrag', { id }); }}>Auftrag öffnen</window.UI.Btn>
+            </>}>
+            <div className="stack" style={{ gap: 12 }}>
+              <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Auftrag <b>{annahmeAnf.auftragId}</b> wurde angelegt. Optional eine kurze Info an <b>{anf.name}</b> senden:</div>
+              <window.UI.Field label="Nachricht">
+                <window.UI.Textarea value={annahmeMsg} onChange={(e) => setAnnahmeMsg(e.target.value)} rows={7} />
+              </window.UI.Field>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {num && (
+                  <a href={'https://wa.me/' + num + '?text=' + encodeURIComponent(annahmeMsg)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', background: '#25D366', color: '#fff', borderRadius: 'var(--r)', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
+                    WhatsApp
+                  </a>
+                )}
+                {anf.email && (
+                  <a href={'mailto:' + anf.email + '?subject=' + betreff + '&body=' + encodeURIComponent(annahmeMsg)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', border: '1.5px solid var(--line)', color: 'var(--ink)', borderRadius: 'var(--r)', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
+                    E-Mail
+                  </a>
+                )}
+              </div>
+            </div>
+          </window.UI.Modal>
+        );
+      })()}
     </>
   );
 };
